@@ -360,6 +360,9 @@ class SessionReader:
         self.sessions_root = sessions_root or codex_home() / "sessions"
         self.files: dict[Path, SessionFile] = {}
         self.thread_titles: dict[str, str] = {}
+        self.raw_thread_titles: dict[str, str] = {}
+        self.pending_title_ids: set[str] = set()
+        self.thread_title_error = ""
         self.title_diagnostics: dict[str, str] = {}
         self._last_discovery = 0.0
         self._last_debug_snapshot: tuple[tuple[str, str, str, str, str, bool], ...] = ()
@@ -389,7 +392,10 @@ class SessionReader:
         for path in list(self.files):
             if path not in paths:
                 self.files.pop(path, None)
-        self.load_thread_titles(tuple(new_session_ids))
+        self.pending_title_ids.update(new_session_ids)
+        # Only newly discovered sessions that have not appeared in SQLite yet
+        # are retried; stored titles themselves are never re-fetched.
+        self.load_thread_titles(tuple(self.pending_title_ids))
 
     def load_thread_titles(self, session_ids: tuple[str, ...]) -> None:
         """Read the Codex UI's persisted conversation titles without writing."""
@@ -404,16 +410,15 @@ class SessionReader:
                     f"SELECT id, title FROM threads WHERE id IN ({placeholders}) AND title <> ''",
                     session_ids,
                 )
-                self.thread_titles.update(
-                    {
-                        thread_id: title
-                        for thread_id, title in rows
-                        if isinstance(title, str) and title.strip() and not is_ide_setup_context(title)
-                    }
-                )
+                found = {thread_id: title for thread_id, title in rows if isinstance(title, str) and title.strip()}
+                self.raw_thread_titles.update(found)
+                self.pending_title_ids.difference_update(found)
+                self.thread_titles.update({thread_id: title for thread_id, title in found.items() if not is_ide_setup_context(title)})
+                self.thread_title_error = ""
             finally:
                 connection.close()
-        except (OSError, sqlite3.Error, ValueError):
+        except (OSError, sqlite3.Error, ValueError) as error:
+            self.thread_title_error = f"{type(error).__name__}: {error}"
             return
 
     def sessions(self) -> list[tuple[str, str, str, str, str]]:
@@ -442,9 +447,11 @@ class SessionReader:
         self.title_diagnostics = {
             item.name: (
                 f"meta id: {item.session_id or '-'}\n"
-                f"SQLite threads.title: {self.thread_titles.get(item.session_id, '(not used)')[:220]}\n"
+                f"SQLite threads.title (raw): {self.raw_thread_titles.get(item.session_id, '(not found)')[:220]}\n"
+                f"SQLite title accepted: {self.thread_titles.get(item.session_id, '(not used)')[:220]}\n"
                 f"title used: {item.title[:220]}\n"
-                f"ending fallback: {item.ending[:160]}"
+                f"ending fallback: {item.ending[:160]}\n"
+                f"SQLite lookup: {self.thread_title_error or ('pending' if item.session_id in self.pending_title_ids else 'found')}"
             )
             for item in unique.values()
         }
