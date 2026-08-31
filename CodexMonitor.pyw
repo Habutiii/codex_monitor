@@ -618,14 +618,18 @@ class MonitorApp(tk.Tk):
         self.animate_icons()
 
     def load_sprites(self) -> dict[str, list[tk.PhotoImage]]:
-        """Crop animation frames; each frame remains centered in its canvas."""
+        """Crop frames and flatten their transparent pixels onto the panel."""
         sheet = tk.PhotoImage(data=ANIMATED_SPRITES_RECROPPED_PNG, format="png")
         sprites: dict[str, list[tk.PhotoImage]] = {}
+        # Windows' colour-key transparency may otherwise expose the key colour
+        # through transparent pixels inside a PhotoImage.
+        sprite_background = THEMES[self.theme_name]["bg"]
         for row, status in enumerate(("working", "waiting", "done", "failed", "idle")):
             frames: list[tk.PhotoImage] = []
             for frame_index, column in enumerate(SPRITE_COLUMNS[status]):
                 offset_x, offset_y = SPRITE_OFFSETS[status][frame_index]
                 crop = tk.PhotoImage(width=64, height=64)
+                crop.put(sprite_background, to=(0, 0, 64, 64))
                 left = column * 64 + max(0, -offset_x)
                 top = row * 64 + max(0, -offset_y)
                 right = (column + 1) * 64 - max(0, offset_x)
@@ -1064,7 +1068,8 @@ class MonitorApp(tk.Tk):
         if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
             self.notes_background_window.configure(bg=palette["card"])
         for widgets in self.row_widgets.values():
-            widgets["canvas"].configure(background=card_bg)
+            # Keep an opaque real colour behind flattened sprite frames.
+            widgets["canvas"].configure(background=palette["bg"])
             widgets["project"].configure(style="Project.TLabel")
             widgets["label"].configure(style="Row.TLabel")
             widgets["ending"].configure(style="Ending.TLabel")
