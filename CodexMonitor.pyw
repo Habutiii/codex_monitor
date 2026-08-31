@@ -521,7 +521,11 @@ class MonitorApp(tk.Tk):
         self.item_font_size_var = tk.IntVar(value=int(self.settings.get("item_font_size", 10)))
         self.ending_font_var = tk.StringVar(value=self.saved_font("ending_font", mono_font))
         self.ending_font_size_var = tk.IntVar(value=int(self.settings.get("ending_font_size", 8)))
-        self.hover_font_var = tk.StringVar(value=self.saved_font("hover_font", hover_default_font))
+        saved_hover_font = str(self.settings.get("hover_font", ""))
+        # Migrate the former default while preserving other explicit choices.
+        self.hover_font_var = tk.StringVar(
+            value=hover_default_font if saved_hover_font in {"", "Cascadia Mono"} else self.saved_font("hover_font", hover_default_font)
+        )
         self.hover_font_size_var = tk.IntVar(value=int(self.settings.get("hover_font_size", 8)))
         self.settings_window: tk.Toplevel | None = None
         self.hover_popup: tk.Toplevel | None = None
