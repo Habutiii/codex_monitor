@@ -610,15 +610,11 @@ class MonitorApp(tk.Tk):
         """Crop frames and flatten their transparent pixels onto the panel."""
         sheet = tk.PhotoImage(data=ANIMATED_SPRITES_RECROPPED_PNG, format="png")
         sprites: dict[str, list[tk.PhotoImage]] = {}
-        # Windows' colour-key transparency may otherwise expose the key colour
-        # through transparent pixels inside a PhotoImage.
-        sprite_background = THEMES[self.theme_name]["bg"]
         for row, status in enumerate(("working", "waiting", "done", "failed", "idle")):
             frames: list[tk.PhotoImage] = []
             for frame_index, column in enumerate(SPRITE_COLUMNS[status]):
                 offset_x, offset_y = SPRITE_OFFSETS[status][frame_index]
                 crop = tk.PhotoImage(width=64, height=64)
-                crop.put(sprite_background, to=(0, 0, 64, 64))
                 left = column * 64 + max(0, -offset_x)
                 top = row * 64 + max(0, -offset_y)
                 right = (column + 1) * 64 - max(0, offset_x)
@@ -917,6 +913,11 @@ class MonitorApp(tk.Tk):
             button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
         if self.settings_window is not None and self.settings_window.winfo_exists():
             self.settings_window.configure(bg=card_bg)
+            if layered:
+                try:
+                    self.settings_window.wm_attributes("-transparentcolor", colour_key)
+                except tk.TclError:
+                    pass
             self.transparency_scale.configure(
                 background=palette["card"],
                 troughcolor=palette["border"],
@@ -934,8 +935,7 @@ class MonitorApp(tk.Tk):
         if self.settings_background_window is not None and self.settings_background_window.winfo_exists():
             self.settings_background_window.configure(bg=palette["card"])
         for widgets in self.row_widgets.values():
-            # Keep an opaque real colour behind flattened sprite frames.
-            widgets["canvas"].configure(background=palette["bg"])
+            widgets["canvas"].configure(background=card_bg)
             widgets["project"].configure(style="Project.TLabel")
             widgets["label"].configure(style="Row.TLabel")
             widgets["ending"].configure(style="Ending.TLabel")
@@ -1149,9 +1149,7 @@ class MonitorApp(tk.Tk):
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
                 item = ttk.Frame(self.rows_frame, style="Card.TFrame")
-                # Canvas image transparency is not colour-keyed by Tk on
-                # Windows, so use the real panel colour rather than the key.
-                canvas_background = THEMES[self.theme_name]["bg"]
+                canvas_background = THEMES[self.theme_name]["bg"] if sys.platform != "win32" else THEMES[self.theme_name]["bg"]
                 canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=canvas_background)
                 text_area = ttk.Frame(item, style="Card.TFrame")
                 project_label = ttk.Label(text_area, style="Project.TLabel", width=1)
