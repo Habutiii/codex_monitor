@@ -533,7 +533,10 @@ class MonitorApp(tk.Tk):
         hover_default_font = "Arial" if "Arial" in self.available_fonts else fallback_font
         self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("always_on_top", False)))
         legacy_alpha = round(float(self.settings.get("alpha", 1.0)) * 100)
-        self.background_alpha_var = tk.DoubleVar(value=round(float(self.settings.get("background_alpha", legacy_alpha / 100)) * 100))
+        # Existing installations had one transparency setting.  Preserve it
+        # as the content value while starting the new background control at
+        # 100%, rather than accidentally applying the old value twice.
+        self.background_alpha_var = tk.DoubleVar(value=round(float(self.settings.get("background_alpha", 1.0)) * 100))
         self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("content_alpha", legacy_alpha / 100)) * 100))
         saved_max_items = self.settings.get("max_items", 3)
         self.max_items_var = tk.IntVar(value=saved_max_items if isinstance(saved_max_items, int) and saved_max_items > 0 else 3)
@@ -599,6 +602,7 @@ class MonitorApp(tk.Tk):
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
         self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        self.after_idle(self.apply_window_opacity)
         self.start_instance_server()
         self.write_instance_pid()
         self.refresh()
@@ -1039,7 +1043,9 @@ class MonitorApp(tk.Tk):
 
     def apply_window_opacity(self) -> None:
         """Apply a flicker-free blend supported by standard Windows Tk."""
-        opacity = (self.background_alpha_var.get() / 100) * (self.alpha_var.get() / 100)
+        # Tk can apply opacity only to a whole native window.  Use the more
+        # transparent of the two requested values, never a compounded value.
+        opacity = min(self.background_alpha_var.get(), self.alpha_var.get()) / 100
         self.set_window_attribute("-alpha", opacity)
         if self.hover_popup is not None and self.hover_popup.winfo_exists():
             self.hover_popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
@@ -1188,7 +1194,6 @@ class MonitorApp(tk.Tk):
                 widget.bind("<Enter>", lambda event, current=widgets, row_item=item: self.show_response_popup(event, current["response"], row_item))
                 widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
                 widget.bind("<Leave>", self.hide_response_popup)
-        self.set_alpha()
         self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
 
