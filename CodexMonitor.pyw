@@ -517,7 +517,9 @@ class MonitorApp(tk.Tk):
         mono_font = "Cascadia Mono" if "Cascadia Mono" in self.available_fonts else fallback_font
         hover_default_font = "Arial" if "Arial" in self.available_fonts else fallback_font
         self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("always_on_top", False)))
-        self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("alpha", 1.0)) * 100))
+        legacy_alpha = round(float(self.settings.get("alpha", 1.0)) * 100)
+        self.background_alpha_var = tk.DoubleVar(value=round(float(self.settings.get("background_alpha", legacy_alpha / 100)) * 100))
+        self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("content_alpha", legacy_alpha / 100)) * 100))
         saved_max_items = self.settings.get("max_items", 3)
         self.max_items_var = tk.IntVar(value=saved_max_items if isinstance(saved_max_items, int) and saved_max_items > 0 else 3)
         self.item_font_var = tk.StringVar(value=self.saved_font("item_font", fallback_font))
@@ -534,6 +536,11 @@ class MonitorApp(tk.Tk):
         self.current_note_id = self.notes[0]["id"]
         self.settings_window: tk.Toplevel | None = None
         self.notes_window: tk.Toplevel | None = None
+        # Windows can keep the panel background and its contents in separate
+        # layered windows.  Other Tk window managers gracefully use the
+        # content opacity as the available fallback.
+        self.background_window: tk.Toplevel | None = None
+        self.notes_background_window: tk.Toplevel | None = None
         self.notes_editor: tk.Text | None = None
         self.notes_title_var = tk.StringVar()
         self.note_tab_buttons: dict[str, ttk.Button] = {}
@@ -582,6 +589,8 @@ class MonitorApp(tk.Tk):
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
         self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        self.bind("<Configure>", self.sync_background_window, add="+")
+        self.after_idle(self.create_background_window)
         self.start_instance_server()
         self.refresh()
         self.after_idle(self.ensure_window_fits)
@@ -676,6 +685,8 @@ class MonitorApp(tk.Tk):
         values = {
             "always_on_top": self.topmost_var.get(),
             "alpha": round(self.alpha_var.get() / 100, 2),
+            "background_alpha": round(self.background_alpha_var.get() / 100, 2),
+            "content_alpha": round(self.alpha_var.get() / 100, 2),
             "max_items": self.max_items_var.get(),
             "item_font": self.item_font_var.get(),
             "item_font_size": self.item_font_size_var.get(),
@@ -694,7 +705,7 @@ class MonitorApp(tk.Tk):
         except OSError:
             pass
 
-    def set_window_attribute(self, attribute: str, value: bool | float) -> bool:
+    def set_window_attribute(self, attribute: str, value: Any) -> bool:
         """Apply a Tk window effect when supported by the current window manager."""
         try:
             self.wm_attributes(attribute, value)
@@ -719,8 +730,12 @@ class MonitorApp(tk.Tk):
 
     def set_topmost(self) -> None:
         self.set_window_attribute("-topmost", self.topmost_var.get())
+        if self.background_window is not None and self.background_window.winfo_exists():
+            self.background_window.wm_attributes("-topmost", self.topmost_var.get())
         if self.notes_window is not None and self.notes_window.winfo_exists():
             self.notes_window.wm_attributes("-topmost", self.topmost_var.get())
+        if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
+            self.notes_background_window.wm_attributes("-topmost", self.topmost_var.get())
         self.save_settings()
 
     def open_settings(self) -> None:
@@ -749,25 +764,34 @@ class MonitorApp(tk.Tk):
         ttk.Checkbutton(card, text="Stick on top", style="Modern.TCheckbutton", variable=self.topmost_var, command=self.set_topmost).grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(14, 0)
         )
-        ttk.Label(card, text="Transparency", style="Control.TLabel").grid(row=2, column=0, sticky="w", pady=(14, 0))
+        ttk.Label(card, text="Background transparency", style="Control.TLabel").grid(row=2, column=0, sticky="w", pady=(14, 0))
         self.transparency_scale = tk.Scale(
-            card, from_=10, to=100, variable=self.alpha_var, command=self.set_alpha,
+            card, from_=10, to=100, variable=self.background_alpha_var, command=self.set_background_alpha,
             orient="horizontal", showvalue=False, resolution=1, length=170,
             sliderrelief="raised", highlightthickness=0, bd=0,
         )
         self.transparency_scale.grid(row=2, column=1, sticky="ew", padx=(12, 0), pady=(14, 0))
         self.percent_label = ttk.Label(card, width=4, style="Control.TLabel")
         self.percent_label.grid(row=2, column=2, padx=(8, 0), pady=(14, 0))
-        ttk.Label(card, text="Maximum items to display", style="Control.TLabel").grid(row=3, column=0, sticky="w", pady=(14, 0))
+        ttk.Label(card, text="Content transparency", style="Control.TLabel").grid(row=3, column=0, sticky="w", pady=(14, 0))
+        self.content_transparency_scale = tk.Scale(
+            card, from_=10, to=100, variable=self.alpha_var, command=self.set_alpha,
+            orient="horizontal", showvalue=False, resolution=1, length=170,
+            sliderrelief="raised", highlightthickness=0, bd=0,
+        )
+        self.content_transparency_scale.grid(row=3, column=1, sticky="ew", padx=(12, 0), pady=(14, 0))
+        self.content_percent_label = ttk.Label(card, width=4, style="Control.TLabel")
+        self.content_percent_label.grid(row=3, column=2, padx=(8, 0), pady=(14, 0))
+        ttk.Label(card, text="Maximum items to display", style="Control.TLabel").grid(row=4, column=0, sticky="w", pady=(14, 0))
         maximum_items = ttk.Spinbox(card, from_=1, to=99, width=5, textvariable=self.max_items_var, command=self.set_max_items)
-        maximum_items.grid(row=3, column=1, sticky="w", padx=(12, 0), pady=(14, 0))
+        maximum_items.grid(row=4, column=1, sticky="w", padx=(12, 0), pady=(14, 0))
         maximum_items.bind("<FocusOut>", self.set_max_items)
         maximum_items.bind("<Return>", self.set_max_items)
         font_choices = self.available_fonts
         for row, label, family, size in (
-            (4, "Item name font", self.item_font_var, self.item_font_size_var),
-            (5, "Ending text font", self.ending_font_var, self.ending_font_size_var),
-            (6, "Hover text font", self.hover_font_var, self.hover_font_size_var),
+            (5, "Item name font", self.item_font_var, self.item_font_size_var),
+            (6, "Ending text font", self.ending_font_var, self.ending_font_size_var),
+            (7, "Hover text font", self.hover_font_var, self.hover_font_size_var),
         ):
             ttk.Label(card, text=label, style="Control.TLabel").grid(row=row, column=0, sticky="w", pady=(14, 0))
             chooser = ttk.Combobox(card, values=font_choices, width=16, textvariable=family, state="readonly")
@@ -779,6 +803,7 @@ class MonitorApp(tk.Tk):
             size_picker.bind("<Return>", self.set_fonts)
         card.columnconfigure(1, weight=1)
         self.apply_theme()
+        self.set_background_alpha()
         self.set_alpha()
         popup.grab_set()
 
@@ -803,6 +828,7 @@ class MonitorApp(tk.Tk):
         popup.minsize(220, 160)
         popup.transient(self)
         popup.protocol("WM_DELETE_WINDOW", self.close_notes)
+        popup.bind("<Configure>", self.sync_notes_background, add="+")
         tab_bar = ttk.Frame(popup, style="Card.TFrame", padding=(6, 6, 6, 0))
         tab_bar.pack(fill="x")
         self.notes_tabs_frame = ttk.Frame(tab_bar, style="Card.TFrame")
@@ -828,6 +854,7 @@ class MonitorApp(tk.Tk):
         self.apply_theme()
         popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
         popup.wm_attributes("-topmost", self.topmost_var.get())
+        self.create_notes_background_window()
         editor.focus_set()
 
     def save_notes(self, _event: tk.Event[Any] | None = None) -> None:
@@ -893,6 +920,9 @@ class MonitorApp(tk.Tk):
 
     def close_notes(self) -> None:
         self.save_notes()
+        if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
+            self.notes_background_window.destroy()
+        self.notes_background_window = None
         if self.notes_window is not None:
             self.notes_window.destroy()
         self.notes_window = None
@@ -922,6 +952,8 @@ class MonitorApp(tk.Tk):
     def apply_theme(self) -> None:
         palette = THEMES[self.theme_name]
         self.configure(bg=palette["bg"])
+        if sys.platform == "win32":
+            self.set_window_attribute("-transparentcolor", palette["bg"])
         self.style.configure("App.TFrame", background=palette["bg"])
         self.style.configure("App.TLabel", background=palette["bg"])
         self.style.configure("Card.TFrame", background=palette["card"], relief="flat")
@@ -950,8 +982,19 @@ class MonitorApp(tk.Tk):
                 activebackground=palette["accent"],
                 highlightbackground=palette["card"],
             )
+            self.content_transparency_scale.configure(
+                background=palette["card"],
+                troughcolor=palette["border"],
+                activebackground=palette["accent"],
+                highlightbackground=palette["card"],
+            )
         if self.notes_window is not None and self.notes_window.winfo_exists() and self.notes_editor is not None:
             self.notes_window.configure(bg=palette["card"])
+            if sys.platform == "win32":
+                try:
+                    self.notes_window.wm_attributes("-transparentcolor", palette["card"])
+                except tk.TclError:
+                    pass
             self.notes_editor.configure(
                 background=palette["card"],
                 foreground=palette["text"],
@@ -959,6 +1002,10 @@ class MonitorApp(tk.Tk):
                 selectbackground=palette["accent"],
                 font=(self.item_font_var.get(), self.item_font_size_var.get()),
             )
+        if self.background_window is not None and self.background_window.winfo_exists():
+            self.background_window.configure(bg=palette["bg"])
+        if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
+            self.notes_background_window.configure(bg=palette["card"])
         for widgets in self.row_widgets.values():
             widgets["canvas"].configure(background=palette["card"])
             widgets["project"].configure(style="Project.TLabel")
@@ -976,8 +1023,71 @@ class MonitorApp(tk.Tk):
         if self.notes_window is not None and self.notes_window.winfo_exists():
             self.notes_window.wm_attributes("-alpha", percent / 100)
         if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.content_percent_label.configure(text=f"{percent}%")
+        self.save_settings()
+
+    def set_background_alpha(self, _value: str = "") -> None:
+        """Set the opacity of the window background layer independently."""
+        percent = min(100, max(10, round(self.background_alpha_var.get())))
+        self.background_alpha_var.set(percent)
+        for window in (self.background_window, self.notes_background_window):
+            if window is not None and window.winfo_exists():
+                try:
+                    window.wm_attributes("-alpha", percent / 100)
+                except tk.TclError:
+                    pass
+        if self.settings_window is not None and self.settings_window.winfo_exists():
             self.percent_label.configure(text=f"{percent}%")
         self.save_settings()
+
+    def create_background_window(self) -> None:
+        """Create the transparent background layer used by Windows builds."""
+        if sys.platform != "win32" or (self.background_window is not None and self.background_window.winfo_exists()):
+            return
+        background = tk.Toplevel(self)
+        background.overrideredirect(True)
+        background.transient(self)
+        self.background_window = background
+        self.apply_theme()
+        self.sync_background_window()
+        self.set_background_alpha()
+
+    def sync_background_window(self, _event: tk.Event[Any] | None = None) -> None:
+        if self.background_window is None or not self.background_window.winfo_exists():
+            return
+        self.update_idletasks()
+        self.background_window.geometry(
+            f"{self.winfo_width()}x{self.winfo_height()}+{self.winfo_x()}+{self.winfo_y()}"
+        )
+        self.background_window.lift()
+        self.lift()
+
+    def create_notes_background_window(self) -> None:
+        if sys.platform != "win32" or self.notes_window is None:
+            return
+        if self.notes_background_window is None or not self.notes_background_window.winfo_exists():
+            background = tk.Toplevel(self)
+            background.overrideredirect(True)
+            background.transient(self.notes_window)
+            self.notes_background_window = background
+        self.apply_theme()
+        self.sync_notes_background()
+        self.set_background_alpha()
+
+    def sync_notes_background(self, _event: tk.Event[Any] | None = None) -> None:
+        if (
+            self.notes_window is None or not self.notes_window.winfo_exists()
+            or self.notes_background_window is None or not self.notes_background_window.winfo_exists()
+        ):
+            return
+        self.notes_window.update_idletasks()
+        self.notes_background_window.geometry(
+            f"{self.notes_window.winfo_width()}x{self.notes_window.winfo_height()}"
+            f"+{self.notes_window.winfo_x()}+{self.notes_window.winfo_y()}"
+        )
+        self.notes_background_window.wm_attributes("-topmost", self.topmost_var.get())
+        self.notes_background_window.lift()
+        self.notes_window.lift()
 
     def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         text = " ".join(response.split())
@@ -1039,6 +1149,8 @@ class MonitorApp(tk.Tk):
 
     def minimize_window(self) -> None:
         # Temporarily restore native chrome so iconify works across Tk platforms.
+        if self.background_window is not None and self.background_window.winfo_exists():
+            self.background_window.withdraw()
         self.overrideredirect(False)
         self.iconify()
         self.after(200, self.restore_custom_chrome)
@@ -1046,6 +1158,9 @@ class MonitorApp(tk.Tk):
     def restore_custom_chrome(self) -> None:
         if self.state() == "normal":
             self.overrideredirect(True)
+            if self.background_window is not None and self.background_window.winfo_exists():
+                self.background_window.deiconify()
+                self.sync_background_window()
         else:
             self.after(200, self.restore_custom_chrome)
 
@@ -1195,6 +1310,9 @@ class MonitorApp(tk.Tk):
     def on_close(self) -> None:
         self.save_notes()
         self.save_settings()
+        for window in (self.notes_background_window, self.background_window):
+            if window is not None and window.winfo_exists():
+                window.destroy()
         if self.instance_server is not None:
             self.instance_server.close()
             self.instance_server = None
