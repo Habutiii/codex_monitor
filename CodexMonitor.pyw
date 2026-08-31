@@ -360,6 +360,7 @@ class SessionReader:
         self.sessions_root = sessions_root or codex_home() / "sessions"
         self.files: dict[Path, SessionFile] = {}
         self.thread_titles: dict[str, str] = {}
+        self.title_diagnostics: dict[str, str] = {}
         self._last_discovery = 0.0
         self._last_debug_snapshot: tuple[tuple[str, str, str, str, str, bool], ...] = ()
 
@@ -438,6 +439,15 @@ class SessionReader:
                 unique[key] = tracker
         rows = [(item.name, item.project_name, item.display_status(now), item.ending_preview, item.ending, item.last_event_at) for item in unique.values()]
         rows = sorted(rows, key=lambda row: (-priority[row[2]], -row[5], row[0].lower()))
+        self.title_diagnostics = {
+            item.name: (
+                f"meta id: {item.session_id or '-'}\n"
+                f"SQLite threads.title: {self.thread_titles.get(item.session_id, '(not used)')[:220]}\n"
+                f"title used: {item.title[:220]}\n"
+                f"ending fallback: {item.ending[:160]}"
+            )
+            for item in unique.values()
+        }
         snapshot = tuple(
             sorted(
                 (
@@ -530,6 +540,15 @@ class MonitorApp(tk.Tk):
         self.rows_frame.columnconfigure(0, weight=1)
         self.empty_label = ttk.Label(self.rows_frame, text="No recent Codex sessions", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
+        self.debug_label = ttk.Label(
+            self.container,
+            text="",
+            style="Ending.TLabel",
+            justify="left",
+            anchor="w",
+            wraplength=400,
+        )
+        self.debug_label.pack(fill="x", pady=(0, 8))
         self.resize_grip = ttk.Label(self.container, text="◢", style="Resize.TLabel", cursor="size_nw_se")
         self.resize_grip.place(relx=1, rely=1, anchor="se")
         self.resize_grip.bind("<ButtonPress-1>", self.begin_window_resize)
@@ -937,6 +956,9 @@ class MonitorApp(tk.Tk):
                 widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
                 widget.bind("<Leave>", self.hide_response_popup)
         self.set_alpha()
+        self.debug_label.configure(
+            text="\n\n".join(self.reader.title_diagnostics.get(name, "") for name, _, _, _, _ in rows)
+        )
         self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
 
