@@ -24,7 +24,7 @@ python3 CodexMonitor.pyw
 
 macOS does not reliably associate `.pyw` files with Python for double-click launching. The command above runs without admin rights. Gatekeeper or corporate device-management policy can still show or enforce a security warning for downloaded files; the app cannot override those operating-system policies.
 
-The application's Tkinter UI, Codex JSONL parser, settings handling, animated status icons, and transparent cat image resources are all embedded in the one `.pyw` file. Always on Top and the 10–100% transparency control use Tk's cross-platform window attributes on both Windows and macOS.
+The application's Tkinter UI, Codex JSONL parser, settings handling, animated status icons, and transparent cat image resources are all embedded in the one `.pyw` file. The Settings button beside minimize opens controls for Stick on top, 10–100% transparency, and the maximum number of displayed sessions (default: 3). Always-on-top and transparency use Tk's cross-platform window attributes on both Windows and macOS.
 
 ## What it monitors
 
@@ -34,7 +34,7 @@ The monitor reads only local rollout logs under:
 %USERPROFILE%\.codex\sessions\**\rollout-*.jsonl
 ```
 
-It includes recent Codex rollout files with valid session metadata, including VS Code, app-server, and child-agent sessions even when their `source` tag differs. Each row is named from its workspace/cwd basename, with one most-relevant row per workspace.
+It includes recent Codex rollout files with valid session metadata, including VS Code, app-server, and child-agent sessions even when their `source` tag differs. Each row represents an individual session and is named from its first user request, with a short session-ID fallback when no request is available. Rows also show the latest agent message beneath the status, compacted to three lines.
 
 | Status | Persisted Codex event |
 | --- | --- |
@@ -42,7 +42,7 @@ It includes recent Codex rollout files with valid session metadata, including VS
 | Waiting for user | `request_user_input`, approval, elicitation, or permission request |
 | Done | `task_complete` |
 | Failed | `error` or `turn_aborted` |
-| Idle | An unfinished session with no activity for 15 minutes |
+| Idle | An unfinished session with no activity for two hours |
 
 Active and finished sessions remain visible for ten hours after their last rollout-file activity. At startup the monitor immediately reconstructs those recent sessions from metadata plus a bounded file tail; after that, it discovers new rollout files within about two seconds and reads only appended JSONL bytes. Session status is refreshed approximately every second.
 
@@ -50,7 +50,7 @@ Active and finished sessions remain visible for ten hours after their last rollo
 
 The app never modifies Codex or VS Code files, makes no network requests, starts no web server, and does not require the Codex CLI.
 
-Always-on-top, transparency, and window position are persisted separately in:
+Always-on-top, transparency, maximum displayed items, and window position are persisted separately in:
 
 ```text
 %LOCALAPPDATA%\CodexSessionMonitor\settings.json
