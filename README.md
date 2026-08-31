@@ -4,14 +4,14 @@ A compact, read-only Windows and macOS desktop monitor for active Codex sessions
 
 ## Run
 
-The release is a single file: [`release/CodexMonitor.pyw`](release/CodexMonitor.pyw). It needs Python 3.10+ with Tkinter; no third-party packages or administrator rights are required.
+The release file is [`CodexMonitor.pyw`](CodexMonitor.pyw). It needs Python 3.10+ with Tkinter; no third-party packages or administrator rights are required.
 
 ### Windows 11
 
 Double-click `CodexMonitor.pyw` if Python is associated with `.pyw` files, or run:
 
 ```powershell
-pyw .\release\CodexMonitor.pyw
+pyw .\CodexMonitor.pyw
 ```
 
 ### macOS
@@ -19,7 +19,7 @@ pyw .\release\CodexMonitor.pyw
 Open Terminal in the downloaded folder and run:
 
 ```bash
-python3 release/CodexMonitor.pyw
+python3 CodexMonitor.pyw
 ```
 
 macOS does not reliably associate `.pyw` files with Python for double-click launching. The command above runs without admin rights. Gatekeeper or corporate device-management policy can still show or enforce a security warning for downloaded files; the app cannot override those operating-system policies.
