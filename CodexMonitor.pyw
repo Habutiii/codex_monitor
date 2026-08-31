@@ -460,7 +460,7 @@ class SessionReader:
                 priority[current.display_status(now)], current.last_event_at
             ):
                 unique[key] = tracker
-        rows = [(item.name, item.project_name, item.display_status(now), item.ending_preview, item.ending, item.last_event_at) for item in unique.values()]
+        rows = [(item.name, item.project_name, item.display_status(now), item.ending, item.ending, item.last_event_at) for item in unique.values()]
         rows = sorted(rows, key=lambda row: (-priority[row[2]], -row[5], row[0].lower()))
         snapshot = tuple(
             sorted(
@@ -1106,6 +1106,7 @@ class MonitorApp(tk.Tk):
             ending_label.pack(anchor="w", fill="x", pady=(0, 5))
             widgets["status"] = status
             widgets["response"] = full_response
+            widgets["ending_text"] = ending
             canvas.itemconfigure(widgets["dot_id"], fill=COLORS[status])
             frames = self.sprite_images.get(status, [])
             canvas.itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index % len(frames)] if frames else "")
@@ -1114,7 +1115,8 @@ class MonitorApp(tk.Tk):
             project_label.bind("<Configure>", lambda _event, current=widgets: self.fit_row_text(current))
             label.bind("<Configure>", lambda _event, current=widgets: self.fit_row_text(current))
             self.fit_row_text(widgets)
-            ending_label.configure(text=ending)
+            ending_label.bind("<Configure>", lambda _event, current=widgets: self.fit_ending_text(current))
+            self.fit_ending_text(widgets)
             for widget in (item, canvas, text_area, project_label, label, ending_label):
                 widget.bind("<Enter>", lambda event, current=widgets, row_item=item: self.show_response_popup(event, current["response"], row_item))
                 widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
@@ -1142,6 +1144,44 @@ class MonitorApp(tk.Tk):
                 shortened = shortened[:-1]
             label.configure(text=(shortened.rstrip() + suffix) if shortened else suffix)
         widgets["ending"].configure(wraplength=max(80, widgets["text_area"].winfo_width()))
+
+    def fit_ending_text(self, widgets: dict[str, Any]) -> None:
+        """Wrap the latest response to at most three rendered-width lines."""
+        text = " ".join(str(widgets.get("ending_text", "")).split())
+        label = widgets["ending"]
+        available = max(24, label.winfo_width() - 4)
+        font = tkfont.Font(family=self.ending_font_var.get(), size=self.ending_font_size_var.get())
+        lines: list[str] = []
+        current = ""
+        for word in text.split():
+            candidate = f"{current} {word}".strip()
+            if font.measure(candidate) <= available:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = ""
+            # A long unbroken token must not force the window to expand.
+            while word and font.measure(word) > available:
+                piece = ""
+                for character in word:
+                    if piece and font.measure(piece + character) > available:
+                        break
+                    piece += character
+                lines.append(piece)
+                word = word[len(piece):]
+            current = word
+        if current:
+            lines.append(current)
+        truncated = len(lines) > 3
+        if truncated:
+            lines = lines[:3]
+        if len(lines) == 3 and truncated:
+            suffix = "..."
+            while lines[-1] and font.measure(lines[-1] + suffix) > available:
+                lines[-1] = lines[-1][:-1]
+            lines[-1] = lines[-1].rstrip() + suffix
+        label.configure(text="\n".join(lines))
 
     def animate_icons(self) -> None:
         """Advance only the frame image; the canvas coordinates never change."""
