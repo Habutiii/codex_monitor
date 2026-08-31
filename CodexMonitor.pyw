@@ -910,6 +910,7 @@ class MonitorApp(tk.Tk):
         popup.transient(self)
         popup.protocol("WM_DELETE_WINDOW", self.close_notes)
         popup.bind("<Configure>", self.schedule_notes_background_sync, add="+")
+        popup.bind("<FocusIn>", lambda _event: self.raise_notes_layers(), add="+")
         self.add_popup_header(popup, "Notes", self.close_notes)
         tab_bar = ttk.Frame(popup, style="Card.TFrame", padding=(6, 6, 6, 0))
         tab_bar.pack(fill="x")
@@ -1087,7 +1088,9 @@ class MonitorApp(tk.Tk):
                 except tk.TclError:
                     pass
             self.notes_editor.configure(
-                background=card_bg,
+                # The editable surface must remain a real widget colour so
+                # clicks reach the Text widget instead of the colour-key hole.
+                background=palette["card"],
                 foreground=palette["text"],
                 insertbackground=palette["text"],
                 selectbackground=palette["accent"],
@@ -1179,6 +1182,15 @@ class MonitorApp(tk.Tk):
         self.sync_notes_background()
         background.lower(self.notes_window)
         self.apply_window_opacity()
+
+    def raise_notes_layers(self) -> None:
+        """Keep the Notes background immediately beneath its foreground."""
+        if self.notes_window is None or self.notes_background_window is None:
+            return
+        if not self.notes_window.winfo_exists() or not self.notes_background_window.winfo_exists():
+            return
+        self.notes_background_window.lift()
+        self.notes_window.lift()
 
     def create_settings_background_window(self) -> None:
         if sys.platform != "win32" or self.settings_window is None:
@@ -1336,12 +1348,12 @@ class MonitorApp(tk.Tk):
             self.empty_label.pack(anchor="w")
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
-                item = ttk.Frame(self.rows_frame, style="RowHit.TFrame")
+                item = ttk.Frame(self.rows_frame, style="Card.TFrame")
                 # Canvas image transparency is not colour-keyed by Tk on
                 # Windows, so use the real panel colour rather than the key.
                 canvas_background = THEMES[self.theme_name]["bg"]
                 canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=canvas_background)
-                text_area = ttk.Frame(item, style="RowHit.TFrame")
+                text_area = ttk.Frame(item, style="Card.TFrame")
                 project_label = ttk.Label(text_area, style="Project.TLabel", width=1)
                 label = ttk.Label(text_area, style="Row.TLabel", width=1)
                 ending_label = ttk.Label(text_area, style="Ending.TLabel", justify="left", anchor="w", width=1)
