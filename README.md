@@ -57,3 +57,13 @@ Always-on-top, transparency, and window position are persisted separately in:
 ```
 
 Use the sun and moon buttons in the draggable window header to select the light or dark theme. The header matches the selected app background and includes minimize and close controls. The choice is saved with the other window preferences.
+
+## Debugging session detection
+
+To see which local Codex rollout files the monitor finds, run it from PowerShell (not by double-clicking) with:
+
+```powershell
+python .\CodexMonitor.pyw --debug
+```
+
+It prints metadata only: the sessions directory, discovered rollout file names, their source/cwd/ID presence, parsed status, and whether each is considered relevant. It does not print prompt or response content. Copy that output when reporting a detection issue.
