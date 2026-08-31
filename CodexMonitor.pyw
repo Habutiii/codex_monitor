@@ -1081,12 +1081,9 @@ class MonitorApp(tk.Tk):
                 highlightbackground=palette["card"],
             )
         if self.notes_window is not None and self.notes_window.winfo_exists() and self.notes_editor is not None:
-            self.notes_window.configure(bg=card_bg)
-            if layered:
-                try:
-                    self.notes_window.wm_attributes("-transparentcolor", colour_key)
-                except tk.TclError:
-                    pass
+            # A colour-keyed Notes window makes the native Text control lose
+            # pointer focus on Windows.  Keep its editable surface normal.
+            self.notes_window.configure(bg=palette["card"])
             self.notes_editor.configure(
                 # The editable surface must remain a real widget colour so
                 # clicks reach the Text widget instead of the colour-key hole.
