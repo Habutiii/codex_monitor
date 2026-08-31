@@ -42,6 +42,26 @@ LABELS = {
     "failed": "Failed",
     "idle": "Idle",
 }
+THEMES = {
+    "light": {
+        "bg": "#f4f7fb",
+        "card": "#ffffff",
+        "text": "#182230",
+        "muted": "#667085",
+        "border": "#d9e1ec",
+        "accent": "#5b7cfa",
+        "button": "#edf2ff",
+    },
+    "dark": {
+        "bg": "#10131a",
+        "card": "#1a202b",
+        "text": "#f3f6fb",
+        "muted": "#a9b4c6",
+        "border": "#2d3748",
+        "accent": "#8ea6ff",
+        "button": "#252f42",
+    },
+}
 
 # These are the current snake_case EventMsg tags in codex-rs/protocol/src/protocol.rs.
 START_EVENTS = {"task_started", "turn_started"}
@@ -247,37 +267,60 @@ class MonitorApp(tk.Tk):
         self.settings = self.load_settings()
         self.title(APP_NAME)
         self.resizable(False, False)
-        self.configure(padx=12, pady=10)
+        self.configure(padx=0, pady=0)
         self.set_window_attribute("-topmost", bool(self.settings.get("always_on_top", False)))
         self.set_window_attribute("-alpha", float(self.settings.get("alpha", 1.0)))
         self.apply_geometry()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        style = ttk.Style(self)
-        style.configure("Title.TLabel", font=("Segoe UI", 11, "bold"))
-        ttk.Label(self, text=APP_NAME, style="Title.TLabel").pack(anchor="w")
-        self.rows_frame = ttk.Frame(self)
-        self.rows_frame.pack(fill="x", pady=(8, 10))
-        self.empty_label = ttk.Label(self.rows_frame, text="No recent VS Code Codex sessions")
+        self.style = ttk.Style(self)
+        self.style.theme_use("clam")
+        saved_theme = str(self.settings.get("theme", "dark")).lower()
+        self.theme_name = saved_theme if saved_theme in THEMES else "dark"
+        self.row_widgets: dict[str, dict[str, Any]] = {}
+
+        self.container = ttk.Frame(self, style="App.TFrame", padding=16)
+        self.container.pack(fill="both", expand=True)
+        header = ttk.Frame(self.container, style="App.TFrame")
+        header.pack(fill="x")
+        title_area = ttk.Frame(header, style="App.TFrame")
+        title_area.pack(side="left", fill="x", expand=True)
+        ttk.Label(title_area, text=APP_NAME, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_area, text="Live local-session activity", style="Subtitle.TLabel").pack(anchor="w", pady=(2, 0))
+        theme_area = ttk.Frame(header, style="App.TFrame")
+        theme_area.pack(side="right")
+        ttk.Label(theme_area, text="Theme", style="Subtitle.TLabel").grid(row=0, column=0, padx=(0, 6))
+        self.theme_buttons = {
+            "light": ttk.Button(theme_area, text="☀", width=3, command=lambda: self.set_theme("light")),
+            "dark": ttk.Button(theme_area, text="☾", width=3, command=lambda: self.set_theme("dark")),
+        }
+        self.theme_buttons["light"].grid(row=0, column=1, padx=(0, 3))
+        self.theme_buttons["dark"].grid(row=0, column=2)
+
+        sessions_card = ttk.Frame(self.container, style="Card.TFrame", padding=10)
+        sessions_card.pack(fill="x", pady=(14, 10))
+        self.rows_frame = ttk.Frame(sessions_card, style="Card.TFrame")
+        self.rows_frame.pack(fill="x")
+        self.empty_label = ttk.Label(self.rows_frame, text="No recent VS Code Codex sessions", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
 
-        controls = ttk.Frame(self)
+        controls = ttk.Frame(self.container, style="Card.TFrame", padding=10)
         controls.pack(fill="x")
         self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("always_on_top", False)))
-        ttk.Checkbutton(controls, text="Always on Top", variable=self.topmost_var, command=self.set_topmost).grid(
+        ttk.Checkbutton(controls, text="Always on Top", style="Modern.TCheckbutton", variable=self.topmost_var, command=self.set_topmost).grid(
             row=0, column=0, sticky="w"
         )
-        ttk.Label(controls, text="Transparency").grid(row=1, column=0, sticky="w", pady=(7, 0))
+        ttk.Label(controls, text="Transparency", style="Control.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("alpha", 1.0)) * 100))
         ttk.Scale(controls, from_=10, to=100, variable=self.alpha_var, command=self.set_alpha).grid(
-            row=1, column=1, sticky="ew", padx=(8, 0), pady=(7, 0)
+            row=1, column=1, sticky="ew", padx=(12, 0), pady=(10, 0)
         )
         controls.columnconfigure(1, weight=1)
-        self.percent_label = ttk.Label(controls, width=4)
-        self.percent_label.grid(row=1, column=2, padx=(6, 0), pady=(7, 0))
+        self.percent_label = ttk.Label(controls, width=4, style="Control.TLabel")
+        self.percent_label.grid(row=1, column=2, padx=(8, 0), pady=(10, 0))
         self.sprite_images = self.load_sprites()
-        self.row_widgets: dict[str, dict[str, Any]] = {}
         self.animation_tick = 0
+        self.apply_theme()
         self.refresh()
         self.animate_icons()
 
@@ -324,6 +367,7 @@ class MonitorApp(tk.Tk):
             "always_on_top": self.topmost_var.get(),
             "alpha": round(self.alpha_var.get() / 100, 2),
             "geometry": self.geometry(),
+            "theme": self.theme_name,
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -343,6 +387,30 @@ class MonitorApp(tk.Tk):
     def set_topmost(self) -> None:
         self.set_window_attribute("-topmost", self.topmost_var.get())
 
+    def set_theme(self, name: str) -> None:
+        self.theme_name = name
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        palette = THEMES[self.theme_name]
+        self.configure(bg=palette["bg"])
+        self.style.configure("App.TFrame", background=palette["bg"])
+        self.style.configure("Card.TFrame", background=palette["card"], relief="flat")
+        self.style.configure("Title.TLabel", background=palette["bg"], foreground=palette["text"], font=("Segoe UI", 13, "bold"))
+        self.style.configure("Subtitle.TLabel", background=palette["bg"], foreground=palette["muted"], font=("Segoe UI", 9))
+        self.style.configure("Row.TLabel", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 10, "bold"))
+        self.style.configure("Empty.TLabel", background=palette["card"], foreground=palette["muted"], font=("Segoe UI", 10))
+        self.style.configure("Control.TLabel", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 9))
+        self.style.configure("Modern.TCheckbutton", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 10, "bold"))
+        self.style.map("Modern.TCheckbutton", background=[("active", palette["card"])], foreground=[("active", palette["accent"])])
+        self.style.configure("Theme.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(6, 3))
+        self.style.configure("ThemeActive.TButton", background=palette["accent"], foreground="#ffffff", borderwidth=0, padding=(6, 3))
+        for name, button in self.theme_buttons.items():
+            button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
+        for widgets in self.row_widgets.values():
+            widgets["canvas"].configure(background=palette["card"])
+            widgets["label"].configure(style="Row.TLabel")
+
     def set_alpha(self, _value: str = "") -> None:
         percent = min(100, max(10, round(self.alpha_var.get())))
         self.set_window_attribute("-alpha", percent / 100)
@@ -361,8 +429,8 @@ class MonitorApp(tk.Tk):
             self.empty_label.pack(anchor="w")
         for index, (name, status) in enumerate(rows):
             if name not in self.row_widgets:
-                canvas = tk.Canvas(self.rows_frame, width=64, height=64, highlightthickness=0, bd=0)
-                label = ttk.Label(self.rows_frame)
+                canvas = tk.Canvas(self.rows_frame, width=64, height=64, highlightthickness=0, bd=0, background=THEMES[self.theme_name]["card"])
+                label = ttk.Label(self.rows_frame, style="Row.TLabel")
                 image_id = canvas.create_image(34, 33)
                 dot_id = canvas.create_oval(2, 2, 13, 13, outline="")
                 self.row_widgets[name] = {
@@ -410,5 +478,4 @@ class MonitorApp(tk.Tk):
 
 if __name__ == "__main__":
     MonitorApp().mainloop()
-
 

@@ -55,3 +55,5 @@ Always-on-top, transparency, and window position are persisted separately in:
 ```text
 %LOCALAPPDATA%\CodexSessionMonitor\settings.json
 ```
+
+Use the sun and moon buttons in the window header to select the light or dark theme. The choice is saved with the other window preferences.
