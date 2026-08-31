@@ -348,7 +348,9 @@ class MonitorApp(tk.Tk):
             drag_widget.bind("<ButtonPress-1>", self.begin_window_drag)
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
+        self.minsize(440, 255)
         self.refresh()
+        self.after_idle(self.ensure_window_fits)
         self.animate_icons()
 
     def load_sprites(self) -> dict[str, tk.PhotoImage]:
@@ -470,6 +472,16 @@ class MonitorApp(tk.Tk):
         else:
             self.after(200, self.restore_custom_chrome)
 
+    def ensure_window_fits(self) -> None:
+        """Expand an old saved geometry so controls and all active rows stay visible."""
+        self.update_idletasks()
+        wanted_width = max(440, self.winfo_reqwidth())
+        wanted_height = max(255, self.winfo_reqheight())
+        if self.winfo_width() < wanted_width or self.winfo_height() < wanted_height:
+            x = max(0, self.winfo_x())
+            y = max(0, self.winfo_y())
+            self.geometry(f"{wanted_width}x{wanted_height}+{x}+{y}")
+
     def refresh(self) -> None:
         rows = self.reader.sessions()
         shown = {name for name, _ in rows}
@@ -503,6 +515,7 @@ class MonitorApp(tk.Tk):
             canvas.itemconfigure(widgets["image_id"], image=self.sprite_images.get(status, ""))
             label.configure(text=f"{name}  —  {LABELS[status]}")
         self.set_alpha()
+        self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
 
     def animate_icons(self) -> None:
