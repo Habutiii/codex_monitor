@@ -597,19 +597,28 @@ class MonitorApp(tk.Tk):
 
     def load_sprites(self) -> dict[str, list[tk.PhotoImage]]:
         """Crop frames and flatten their transparent pixels onto the panel."""
-        sheet = tk.PhotoImage(data=ANIMATED_SPRITES_RECROPPED_PNG, format="png")
+        sprite_asset = Path(__file__).with_name("status_sprites.png")
+        use_transparent_asset = sprite_asset.exists()
+        sheet = tk.PhotoImage(file=str(sprite_asset)) if use_transparent_asset else tk.PhotoImage(data=ANIMATED_SPRITES_RECROPPED_PNG, format="png")
         sprites: dict[str, list[tk.PhotoImage]] = {}
         for row, status in enumerate(("working", "waiting", "done", "failed", "idle")):
             frames: list[tk.PhotoImage] = []
             for frame_index, column in enumerate(SPRITE_COLUMNS[status]):
                 offset_x, offset_y = SPRITE_OFFSETS[status][frame_index]
-                crop = tk.PhotoImage(width=64, height=64)
-                left = column * 64 + max(0, -offset_x)
-                top = row * 64 + max(0, -offset_y)
-                right = (column + 1) * 64 - max(0, offset_x)
-                bottom = (row + 1) * 64 - max(0, offset_y)
-                self.tk.call(str(crop), "copy", str(sheet), "-from", left, top, right, bottom, "-to", max(0, offset_x), max(0, offset_y))
-                frames.append(crop)
+                if use_transparent_asset:
+                    crop = tk.PhotoImage(width=192, height=192)
+                    left = (column + 1) * 192
+                    top = row * 205
+                    self.tk.call(str(crop), "copy", str(sheet), "-from", left, top, left + 192, top + 192)
+                    frames.append(crop.subsample(3, 3))
+                else:
+                    crop = tk.PhotoImage(width=64, height=64)
+                    left = column * 64 + max(0, -offset_x)
+                    top = row * 64 + max(0, -offset_y)
+                    right = (column + 1) * 64 - max(0, offset_x)
+                    bottom = (row + 1) * 64 - max(0, offset_y)
+                    self.tk.call(str(crop), "copy", str(sheet), "-from", left, top, right, bottom, "-to", max(0, offset_x), max(0, offset_y))
+                    frames.append(crop)
             sprites[status] = frames
         self.sprite_sheet = sheet
         return sprites
