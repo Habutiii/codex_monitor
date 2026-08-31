@@ -567,6 +567,7 @@ class MonitorApp(tk.Tk):
         self.hover_label: tk.Label | None = None
         self.hover_item: ttk.Frame | None = None
         self.instance_server: socket.socket | None = None
+        self._closing = False
         self.row_widgets: dict[str, dict[str, Any]] = {}
 
         self.container = ttk.Frame(self, style="App.TFrame", padding=5)
@@ -1455,10 +1456,22 @@ class MonitorApp(tk.Tk):
         self.after(ANIMATION_MS, self.animate_icons)
 
     def on_close(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
         self.save_notes()
         self.save_settings()
         self.remove_instance_pid()
-        for window in (self.notes_background_window, self.settings_background_window, self.background_window):
+        # Taskbar close is an application close: remove every auxiliary
+        # window explicitly before destroying the root window.
+        for window in (
+            self.hover_popup,
+            self.notes_window,
+            self.settings_window,
+            self.notes_background_window,
+            self.settings_background_window,
+            self.background_window,
+        ):
             if window is not None and window.winfo_exists():
                 window.destroy()
         if self.instance_server is not None:
