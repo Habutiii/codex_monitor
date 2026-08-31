@@ -31,7 +31,8 @@ RECENT_SESSION_HOURS = 10
 IDLE_AFTER_SECONDS = 2 * 60 * 60
 ACTIVE_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 FINISHED_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
-ANIMATION_MS = 500
+MIN_WINDOW_WIDTH = 440
+MIN_WINDOW_HEIGHT = 255
 SPRITE_TOP = 0
 SPRITE_WIDTH = 200
 SPRITE_HEIGHT = 210
@@ -440,22 +441,18 @@ class MonitorApp(tk.Tk):
             drag_widget.bind("<ButtonPress-1>", self.begin_window_drag)
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
-        self.minsize(440, 255)
+        self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.refresh()
         self.after_idle(self.ensure_window_fits)
-        self.animate_icons()
 
-    def load_sprites(self) -> dict[str, tk.PhotoImage]:
-        """Crop seven supplied animation frames for each status."""
+    def load_sprites(self) -> dict[str, list[tk.PhotoImage]]:
+        """Use one fixed status image per row so status icons never move."""
         sheet = tk.PhotoImage(data=ANIMATED_SPRITES_FIXED_PNG, format="png")
         sprites: dict[str, list[tk.PhotoImage]] = {}
         for row, status in enumerate(("working", "waiting", "done", "failed", "idle")):
-            frames: list[tk.PhotoImage] = []
-            for column in range(7):
-                crop = tk.PhotoImage(width=64, height=64)
-                self.tk.call(str(crop), "copy", str(sheet), "-from", column * 64, row * 64, (column + 1) * 64, (row + 1) * 64, "-to", 0, 0)
-                frames.append(crop)
-            sprites[status] = frames
+            crop = tk.PhotoImage(width=64, height=64)
+            self.tk.call(str(crop), "copy", str(sheet), "-from", 0, row * 64, 64, (row + 1) * 64, "-to", 0, 0)
+            sprites[status] = [crop]
         self.sprite_sheet = sheet
         return sprites
 
@@ -678,8 +675,8 @@ class MonitorApp(tk.Tk):
         if self._resize_start is None:
             return
         start_x, start_y, start_width, start_height = self._resize_start
-        width = max(self.winfo_minwidth(), start_width + event.x_root - start_x)
-        height = max(self.winfo_minheight(), start_height + event.y_root - start_y)
+        width = max(MIN_WINDOW_WIDTH, start_width + event.x_root - start_x)
+        height = max(MIN_WINDOW_HEIGHT, start_height + event.y_root - start_y)
         self.geometry(f"{width}x{height}")
 
     def finish_window_resize(self, _event: tk.Event[Any]) -> None:
@@ -701,8 +698,8 @@ class MonitorApp(tk.Tk):
     def ensure_window_fits(self) -> None:
         """Expand an old saved geometry so controls and all active rows stay visible."""
         self.update_idletasks()
-        wanted_width = max(440, self.winfo_reqwidth())
-        wanted_height = max(255, self.winfo_reqheight())
+        wanted_width = max(MIN_WINDOW_WIDTH, self.winfo_reqwidth())
+        wanted_height = max(MIN_WINDOW_HEIGHT, self.winfo_reqheight())
         if self.winfo_width() < wanted_width or self.winfo_height() < wanted_height:
             x = max(0, self.winfo_x())
             y = max(0, self.winfo_y())
@@ -729,7 +726,7 @@ class MonitorApp(tk.Tk):
                 canvas = tk.Canvas(self.rows_frame, width=64, height=64, highlightthickness=0, bd=0, background=THEMES[self.theme_name]["card"])
                 label = ttk.Label(self.rows_frame, style="Row.TLabel")
                 ending_label = ttk.Label(self.rows_frame, style="Ending.TLabel", justify="left", anchor="w")
-                image_id = canvas.create_image(34, 33)
+                image_id = canvas.create_image(32, 32)
                 dot_id = canvas.create_oval(2, 2, 13, 13, outline="")
                 self.row_widgets[name] = {
                     "canvas": canvas,
@@ -760,17 +757,6 @@ class MonitorApp(tk.Tk):
         self.set_alpha()
         self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
-
-    def animate_icons(self) -> None:
-        """Animate canvas placement only; session files are still polled once a second."""
-        self.animation_tick += 1
-        self.sprite_frame_index = (self.sprite_frame_index + 1) % 7
-        for widgets in self.row_widgets.values():
-            status = widgets["status"]
-            frames = self.sprite_images.get(status, [])
-            if frames:
-                widgets["canvas"].itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index])
-        self.after(ANIMATION_MS, self.animate_icons)
 
     def on_close(self) -> None:
         self.save_settings()
