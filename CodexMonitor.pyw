@@ -91,15 +91,6 @@ LABELS = {
     "idle": "Idle",
 }
 THEMES = {
-    "light": {
-        "bg": "#f4f7fb",
-        "card": "#ffffff",
-        "text": "#182230",
-        "muted": "#667085",
-        "border": "#d9e1ec",
-        "accent": "#5b7cfa",
-        "button": "#edf2ff",
-    },
     "dark": {
         "bg": "#10131a",
         "card": "#1a202b",
@@ -525,8 +516,7 @@ class MonitorApp(tk.Tk):
 
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
-        saved_theme = str(self.settings.get("theme", "dark")).lower()
-        self.theme_name = saved_theme if saved_theme in THEMES else "dark"
+        self.theme_name = "dark"
         self.available_fonts = tuple(sorted(set(tkfont.families(self))))
         fallback_font = "Segoe UI" if "Segoe UI" in self.available_fonts else "TkDefaultFont"
         mono_font = "Cascadia Mono" if "Cascadia Mono" in self.available_fonts else fallback_font
@@ -575,7 +565,6 @@ class MonitorApp(tk.Tk):
         ttk.Button(window_area, text="⛭", width=3, style="Gear.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
         ttk.Button(window_area, text="—", width=3, style="Window.TButton", command=self.minimize_window).grid(row=0, column=1, padx=(0, 3))
         ttk.Button(window_area, text="×", width=3, style="Window.TButton", command=self.on_close).grid(row=0, column=2)
-        self.theme_buttons: dict[str, ttk.Button] = {}
 
         sessions_card = ttk.Frame(self.container, style="Card.TFrame", padding=10)
         sessions_card.pack(fill="x", pady=(14, 10))
@@ -782,27 +771,18 @@ class MonitorApp(tk.Tk):
         self.add_popup_header(popup, "Settings", self.close_settings)
         card = ttk.Frame(popup, style="Card.TFrame", padding=16)
         card.pack(fill="both", expand=True)
-        theme_area = ttk.Frame(card, style="Card.TFrame")
-        theme_area.grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(theme_area, text="Theme", style="Control.TLabel").grid(row=0, column=0, padx=(0, 6))
-        self.theme_buttons = {
-            "light": ttk.Button(theme_area, text="☀", width=3, command=lambda: self.set_theme("light")),
-            "dark": ttk.Button(theme_area, text="☾", width=3, command=lambda: self.set_theme("dark")),
-        }
-        self.theme_buttons["light"].grid(row=0, column=1, padx=(0, 3))
-        self.theme_buttons["dark"].grid(row=0, column=2)
         ttk.Checkbutton(card, text="Stick on top", style="Modern.TCheckbutton", variable=self.topmost_var, command=self.set_topmost).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(14, 0)
+            row=0, column=0, columnspan=2, sticky="w"
         )
-        ttk.Label(card, text="Background transparency", style="Control.TLabel").grid(row=2, column=0, sticky="w", pady=(14, 0))
+        ttk.Label(card, text="Background transparency", style="Control.TLabel").grid(row=1, column=0, sticky="w", pady=(14, 0))
         self.transparency_scale = tk.Scale(
             card, from_=10, to=100, variable=self.background_alpha_var, command=self.set_background_alpha,
             orient="horizontal", showvalue=False, resolution=1, length=170,
             sliderrelief="raised", highlightthickness=0, bd=0,
         )
-        self.transparency_scale.grid(row=2, column=1, sticky="ew", padx=(12, 0), pady=(14, 0))
+        self.transparency_scale.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(14, 0))
         self.percent_label = ttk.Label(card, width=4, style="Control.TLabel")
-        self.percent_label.grid(row=2, column=2, padx=(8, 0), pady=(14, 0))
+        self.percent_label.grid(row=1, column=2, padx=(8, 0), pady=(14, 0))
         ttk.Label(card, text="Content transparency", style="Control.TLabel").grid(row=3, column=0, sticky="w", pady=(14, 0))
         self.content_transparency_scale = tk.Scale(
             card, from_=10, to=100, variable=self.alpha_var, command=self.set_alpha,
@@ -873,10 +853,6 @@ class MonitorApp(tk.Tk):
         self.apply_theme()
         self.save_settings()
 
-    def set_theme(self, name: str) -> None:
-        self.theme_name = name
-        self.apply_theme()
-
     def apply_theme(self) -> None:
         palette = THEMES[self.theme_name]
         layered = sys.platform == "win32"
@@ -909,8 +885,6 @@ class MonitorApp(tk.Tk):
         self.style.configure("ThemeActive.TButton", background=palette["accent"], foreground="#ffffff", borderwidth=0, padding=(6, 3))
         self.style.configure("Window.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2))
         self.style.configure("Gear.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2))
-        for name, button in self.theme_buttons.items():
-            button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
         if self.settings_window is not None and self.settings_window.winfo_exists():
             self.settings_window.configure(bg=card_bg)
             if layered:
