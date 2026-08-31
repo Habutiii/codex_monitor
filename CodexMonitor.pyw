@@ -571,13 +571,13 @@ class MonitorApp(tk.Tk):
 
         self.container = ttk.Frame(self, style="App.TFrame", padding=5)
         self.container.pack(fill="both", expand=True)
-        header = ttk.Frame(self.container, style="App.TFrame")
+        header = ttk.Frame(self.container, style="Header.TFrame")
         header.pack(fill="x")
-        title_area = ttk.Frame(header, style="App.TFrame")
+        title_area = ttk.Frame(header, style="Header.TFrame")
         title_area.pack(side="left", fill="x", expand=True)
-        title_label = ttk.Label(title_area, image=self.header_icon, style="App.TLabel")
+        title_label = ttk.Label(title_area, image=self.header_icon, style="Header.TLabel")
         title_label.pack(side="left")
-        window_area = ttk.Frame(header, style="App.TFrame")
+        window_area = ttk.Frame(header, style="Header.TFrame")
         window_area.pack(side="right")
         ttk.Button(window_area, text="⛭", width=3, style="Gear.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
         ttk.Button(window_area, text="Note", width=5, style="Window.TButton", command=self.open_notes).grid(row=0, column=1, padx=(0, 3))
@@ -780,11 +780,11 @@ class MonitorApp(tk.Tk):
 
     def add_popup_header(self, popup: tk.Toplevel, title: str, close_command: Any) -> None:
         """Give auxiliary windows the same compact frameless header as the app."""
-        header = ttk.Frame(popup, style="App.TFrame", padding=(5, 4))
+        header = ttk.Frame(popup, style="Header.TFrame", padding=(5, 4))
         header.pack(fill="x")
-        title_area = ttk.Frame(header, style="App.TFrame")
+        title_area = ttk.Frame(header, style="Header.TFrame")
         title_area.pack(side="left", fill="x", expand=True)
-        icon = ttk.Label(title_area, image=self.header_icon, style="App.TLabel")
+        icon = ttk.Label(title_area, image=self.header_icon, style="Header.TLabel")
         icon.pack(side="left")
         label = ttk.Label(title_area, text=title, style="Control.TLabel")
         label.pack(side="left", padx=(6, 0))
@@ -1043,7 +1043,10 @@ class MonitorApp(tk.Tk):
             self.set_window_attribute("-transparentcolor", colour_key)
         self.style.configure("App.TFrame", background=foreground_bg)
         self.style.configure("App.TLabel", background=foreground_bg)
+        self.style.configure("Header.TFrame", background=palette["button"])
+        self.style.configure("Header.TLabel", background=palette["button"])
         self.style.configure("Card.TFrame", background=card_bg, relief="flat")
+        self.style.configure("RowHit.TFrame", background=palette["card"], relief="flat")
         self.style.configure("Title.TLabel", background=foreground_bg, foreground=palette["text"], font=("Segoe UI", 12, "bold"))
         self.style.configure("Search.TLabel", background=foreground_bg, foreground=palette["text"], font=("Segoe UI Emoji", 12))
         self.style.configure("Subtitle.TLabel", background=foreground_bg, foreground=palette["muted"], font=("Segoe UI", 9))
@@ -1143,11 +1146,12 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["bg"])
         background.wm_attributes("-topmost", self.topmost_var.get())
-        self.bind_background_drag(background, self)
+        self.disable_background_input(background)
         self.background_window = background
         self.sync_background_window()
         background.lower(self)
         self.apply_window_opacity()
+        self.after(100, self.enable_taskbar_icon)
 
     def schedule_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._background_sync_scheduled:
@@ -1169,7 +1173,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["card"])
         background.wm_attributes("-topmost", self.topmost_var.get())
-        self.bind_background_drag(background, self.notes_window)
+        self.disable_background_input(background)
         self.notes_background_window = background
         self.sync_notes_background()
         background.lower(self.notes_window)
@@ -1183,7 +1187,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["card"])
         background.wm_attributes("-topmost", self.topmost_var.get())
-        self.bind_background_drag(background, self.settings_window)
+        self.disable_background_input(background)
         self.settings_background_window = background
         self.sync_settings_background()
         background.lower(self.settings_window)
@@ -1206,17 +1210,13 @@ class MonitorApp(tk.Tk):
             f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
         )
 
-    def bind_background_drag(self, background: tk.Toplevel, target: tk.Toplevel) -> None:
-        """Forward pointer events through colour-key transparent headers."""
-        def begin_drag(event: tk.Event[Any]) -> None:
-            target._drag_offset = (event.x_root - target.winfo_x(), event.y_root - target.winfo_y())
-
-        def drag(event: tk.Event[Any]) -> None:
-            offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
-            target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
-
-        background.bind("<ButtonPress-1>", begin_drag)
-        background.bind("<B1-Motion>", drag)
+    def disable_background_input(self, background: tk.Toplevel) -> None:
+        """Keep a visual layer from stealing focus, clicks, or taskbar state."""
+        try:
+            background.wm_attributes("-disabled", True)
+            background.wm_attributes("-toolwindow", True)
+        except tk.TclError:
+            pass
 
     def schedule_notes_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._notes_background_sync_scheduled:
@@ -1335,12 +1335,12 @@ class MonitorApp(tk.Tk):
             self.empty_label.pack(anchor="w")
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
-                item = ttk.Frame(self.rows_frame, style="Card.TFrame")
+                item = ttk.Frame(self.rows_frame, style="RowHit.TFrame")
                 # Canvas image transparency is not colour-keyed by Tk on
                 # Windows, so use the real panel colour rather than the key.
                 canvas_background = THEMES[self.theme_name]["bg"]
                 canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=canvas_background)
-                text_area = ttk.Frame(item, style="Card.TFrame")
+                text_area = ttk.Frame(item, style="RowHit.TFrame")
                 project_label = ttk.Label(text_area, style="Project.TLabel", width=1)
                 label = ttk.Label(text_area, style="Row.TLabel", width=1)
                 ending_label = ttk.Label(text_area, style="Ending.TLabel", justify="left", anchor="w", width=1)
