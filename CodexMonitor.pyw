@@ -23,7 +23,7 @@ if sys.platform == "win32":
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Habutiii.CodexSessionMonitor")
 
 
-APP_NAME = "Codex Session Monitor"
+APP_NAME = "Codex Monitor"
 POLL_MS = 1_000
 DISCOVER_EVERY_SECONDS = 2
 TAIL_BYTES = 256 * 1024
@@ -809,8 +809,13 @@ class MonitorApp(tk.Tk):
         title_entry = ttk.Entry(title_row, textvariable=self.notes_title_var)
         title_entry.pack(side="left", fill="x", expand=True)
         title_entry.bind("<KeyRelease>", self.save_notes)
-        editor = tk.Text(popup, wrap="word", undo=True, padx=10, pady=8, borderwidth=0, highlightthickness=0)
-        editor.pack(fill="both", expand=True)
+        editor_area = ttk.Frame(popup, style="Card.TFrame")
+        editor_area.pack(fill="both", expand=True)
+        editor = tk.Text(editor_area, wrap="word", undo=True, padx=10, pady=8, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(editor_area, orient="vertical", command=editor.yview)
+        editor.configure(yscrollcommand=scrollbar.set)
+        editor.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         editor.bind("<KeyRelease>", self.save_notes)
         editor.bind("<FocusOut>", self.save_notes)
         self.notes_editor = editor
