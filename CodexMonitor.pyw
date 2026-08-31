@@ -554,10 +554,12 @@ class MonitorApp(tk.Tk):
         self.notes = self.load_notes()
         self.current_note_id = self.notes[0]["id"]
         self.settings_window: tk.Toplevel | None = None
+        self.settings_background_window: tk.Toplevel | None = None
         self.notes_window: tk.Toplevel | None = None
         self.background_window: tk.Toplevel | None = None
         self.notes_background_window: tk.Toplevel | None = None
         self._background_sync_scheduled = False
+        self._settings_background_sync_scheduled = False
         self._notes_background_sync_scheduled = False
         self.notes_editor: tk.Text | None = None
         self.notes_title_var = tk.StringVar()
@@ -767,6 +769,8 @@ class MonitorApp(tk.Tk):
         self.set_window_attribute("-topmost", self.topmost_var.get())
         if self.background_window is not None and self.background_window.winfo_exists():
             self.background_window.wm_attributes("-topmost", self.topmost_var.get())
+        if self.settings_background_window is not None and self.settings_background_window.winfo_exists():
+            self.settings_background_window.wm_attributes("-topmost", self.topmost_var.get())
         if self.notes_window is not None and self.notes_window.winfo_exists():
             self.notes_window.wm_attributes("-topmost", self.topmost_var.get())
         if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
@@ -785,6 +789,7 @@ class MonitorApp(tk.Tk):
         popup.resizable(False, False)
         popup.transient(self)
         popup.protocol("WM_DELETE_WINDOW", self.close_settings)
+        popup.bind("<Configure>", self.schedule_settings_background_sync, add="+")
         card = ttk.Frame(popup, style="Card.TFrame", padding=16)
         card.pack(fill="both", expand=True)
         theme_area = ttk.Frame(card, style="Card.TFrame")
@@ -842,15 +847,21 @@ class MonitorApp(tk.Tk):
         self.set_alpha()
         if sys.platform == "win32":
             try:
-                popup.configure(bg=THEMES[self.theme_name]["card"])
+                popup.configure(bg=TRANSPARENT_COLOR)
                 popup.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
+                popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
+                popup.wm_attributes("-topmost", self.topmost_var.get())
             except tk.TclError:
                 pass
+        self.create_settings_background_window()
         popup.grab_set()
 
     def close_settings(self) -> None:
         if self.settings_window is not None:
             self.settings_window.grab_release()
+            if self.settings_background_window is not None and self.settings_background_window.winfo_exists():
+                self.settings_background_window.destroy()
+            self.settings_background_window = None
             self.settings_window.destroy()
         self.settings_window = None
         self.save_settings()
@@ -1019,7 +1030,7 @@ class MonitorApp(tk.Tk):
         for name, button in self.theme_buttons.items():
             button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
         if self.settings_window is not None and self.settings_window.winfo_exists():
-            self.settings_window.configure(bg=palette["card"])
+            self.settings_window.configure(bg=card_bg)
             self.transparency_scale.configure(
                 background=palette["card"],
                 troughcolor=palette["border"],
@@ -1048,6 +1059,8 @@ class MonitorApp(tk.Tk):
             )
         if self.background_window is not None and self.background_window.winfo_exists():
             self.background_window.configure(bg=palette["bg"])
+        if self.settings_background_window is not None and self.settings_background_window.winfo_exists():
+            self.settings_background_window.configure(bg=palette["card"])
         if self.notes_background_window is not None and self.notes_background_window.winfo_exists():
             self.notes_background_window.configure(bg=palette["card"])
         for widgets in self.row_widgets.values():
@@ -1083,7 +1096,9 @@ class MonitorApp(tk.Tk):
             self.hover_popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
         if self.notes_window is not None and self.notes_window.winfo_exists():
             self.notes_window.wm_attributes("-alpha", self.alpha_var.get() / 100)
-        for window in (self.background_window, self.notes_background_window):
+        if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.settings_window.wm_attributes("-alpha", self.alpha_var.get() / 100)
+        for window in (self.background_window, self.settings_background_window, self.notes_background_window):
             if window is not None and window.winfo_exists():
                 window.wm_attributes("-alpha", self.background_alpha_var.get() / 100)
 
@@ -1124,6 +1139,36 @@ class MonitorApp(tk.Tk):
         self.sync_notes_background()
         background.lower(self.notes_window)
         self.apply_window_opacity()
+
+    def create_settings_background_window(self) -> None:
+        if sys.platform != "win32" or self.settings_window is None:
+            self.apply_window_opacity()
+            return
+        background = tk.Toplevel(self)
+        background.overrideredirect(True)
+        background.configure(bg=THEMES[self.theme_name]["card"])
+        background.wm_attributes("-topmost", self.topmost_var.get())
+        self.settings_background_window = background
+        self.sync_settings_background()
+        background.lower(self.settings_window)
+        self.apply_window_opacity()
+
+    def schedule_settings_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
+        if self._settings_background_sync_scheduled:
+            return
+        self._settings_background_sync_scheduled = True
+        self.after_idle(self.sync_settings_background)
+
+    def sync_settings_background(self) -> None:
+        self._settings_background_sync_scheduled = False
+        if self.settings_window is None or self.settings_background_window is None:
+            return
+        if not self.settings_window.winfo_exists() or not self.settings_background_window.winfo_exists():
+            return
+        self.settings_background_window.geometry(
+            f"{self.settings_window.winfo_width()}x{self.settings_window.winfo_height()}"
+            f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
+        )
 
     def schedule_notes_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._notes_background_sync_scheduled:
@@ -1243,7 +1288,9 @@ class MonitorApp(tk.Tk):
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
                 item = ttk.Frame(self.rows_frame, style="Card.TFrame")
-                canvas_background = TRANSPARENT_COLOR if sys.platform == "win32" else THEMES[self.theme_name]["card"]
+                # Canvas image transparency is not colour-keyed by Tk on
+                # Windows, so use the real panel colour rather than the key.
+                canvas_background = THEMES[self.theme_name]["bg"]
                 canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=canvas_background)
                 text_area = ttk.Frame(item, style="Card.TFrame")
                 project_label = ttk.Label(text_area, style="Project.TLabel", width=1)
@@ -1363,7 +1410,7 @@ class MonitorApp(tk.Tk):
         self.save_notes()
         self.save_settings()
         self.remove_instance_pid()
-        for window in (self.notes_background_window, self.background_window):
+        for window in (self.notes_background_window, self.settings_background_window, self.background_window):
             if window is not None and window.winfo_exists():
                 window.destroy()
         if self.instance_server is not None:
