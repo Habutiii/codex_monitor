@@ -75,7 +75,6 @@ SPRITE_OFFSETS = {
     "idle": ((3, 1), (0, 4), (-4, 2), (-7, 0), (-10, -2), (10, 0), (8, -2)),
 }
 
-EMBEDDED_HEADER_LOGO_PNG = "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAEJklEQVR42nXW229U1xUG8N8+Z8aXiQ0OBEOCC5gScpMgvSpqFZSoavKQp/bfbKU+VG3VhzSXvlRVFampcEMphPqCMTa2wZeZ8cw5qw97xjOGdklHM3vO2nut9X3fWntERBERH0XE7yNiNSK6MbK6riOq6uRT1zFu46tuRKxExG8j4mfQwEe4hWuYRWHMUsrP8xYY/lzXx34FTuF1fBgRRYqIP+JNXBo4R1Ec71VX9HpUVV4XBRMTFOWLQZ/b+wC3U0SsYQ4tiBhl3u+xucHqMrvbOeXZU1y5yivzOWizOQr2XIA97KSI6A5gKepaSklKiX6f5f9w79/s7tBuZ1ymWpw7x8ypnExKnHmZhe8wOXmMXqBClSKGOY+s1+fhOrdv8/AhzQkaTaLOh/b7GbpU5O9n5rh5kyuXc0UnOMzkj4js91ld5+slNjdfJDQik5p355dFwdwcP7jB4uUR8UWRVXS8/+iIe8ss3WVji06HVDLVzM7Dg1M5ilgkOj3WNnlti4WLNBsjsTUiMuZVxco6f7/Dg7UMy+m57LXfpj6iLMc0aqSqo5qqzoGGSRQFQSrqgXPniH/cZ+UJVUmnz3ev8N73KCfYadNPdGq6kZ9OTXew7lT0YwTlcQJDinsVq0/YbqNJD72g1eLVeVqztOscpC6oivzZT9m3Ktk+YH07VzOstHGiOwt6Nd1+Lnv5MTMtXpvnaYe7q6TIuq/rnG1ZEilz8eAxp77l3Mu0JrMgGkP1lCWvnObxDu0uR326vdzFRUm/otMdrIuBmoLJCSaaOcDGEx60ssxN5vfHAaaavHuNZ3t89U1+efVVrl7ki69Y+hdTU/zwHc7O5QBFwf1V7q1kmXe7tA/HZIzGkJRmg8ULfD3N/tNcUVnnDr57n2+XeXuR86e5eC4HaJY82eRwj+4Rsy8xP0ujGLXJCQ56PTptqm7G9fO/5MG2vsFMk60tfvdp7tYYkNivONjn8IBL87x5+XhkSINGG3VdI0+Qw2cZjuW1PPAmmkwUHOyx+TgfmlLeQ8783Te49WOuL2Y0IiiSaKQ0wmx6isUFFuZZe0TnkBIHgwSaDSYLpsssxbrO5F5b4JMPuPHWqBljVMTJC+VHN/jFx8xMsbXB3lOe7dDZp9+l18lVHe5n/C9d4OP3efv1sU4fO7Mh90mBVNfS9LT03vfzXFr6Jju2WvzzDn/9W5ZwBC+1eOs6H/yEm+9k3OuaIMpCoEadIuLR4JqbHucDtnfywDt7ls++5Fe/Yf8gi+HCeX7+Ibd+ytkzOehQugM7xG6KiE9xHQty2CheHCk6HXafDrKMrKSZGVrT//fKXMFSiohP8D5+ifNoRWjUwaDUNH5f/A+L4UQewH2IR/g1/tzAH9DHjcG9PJUSZRr9W2Cgmmo0qdNgJI/LdYD7Lu7gM/zpv24ULhGqgPL+AAAAAElFTkSuQmCC"
 
 COLORS = {
     "working": "#eab308",
@@ -508,13 +507,14 @@ class MonitorApp(tk.Tk):
         self.settings = self.load_settings()
         self.title(APP_NAME)
         self.app_icon = tk.PhotoImage(data=EMBEDDED_APP_ICON_PNG, format="png")
-        self.header_logo = tk.PhotoImage(data=EMBEDDED_HEADER_LOGO_PNG, format="png")
+        self.header_icon = self.app_icon.subsample(3, 3)
         self.iconphoto(True, self.app_icon)
         # The custom title bar hides the platform resize border, so the corner
         # grip below supplies resizing while retaining the frameless design.
         self.resizable(True, True)
         self.overrideredirect(True)
         self.after_idle(self.enable_taskbar_icon)
+        self.bind("<FocusIn>", lambda _event: self.enable_taskbar_icon(), add="+")
         self._drag_offset = (0, 0)
         self._resize_start: tuple[int, int, int, int] | None = None
         self.configure(padx=0, pady=0)
@@ -575,10 +575,8 @@ class MonitorApp(tk.Tk):
         header.pack(fill="x")
         title_area = ttk.Frame(header, style="App.TFrame")
         title_area.pack(side="left", fill="x", expand=True)
-        title_label = ttk.Label(title_area, image=self.header_logo, style="App.TLabel")
+        title_label = ttk.Label(title_area, image=self.header_icon, style="App.TLabel")
         title_label.pack(side="left")
-        search_label = ttk.Label(title_area, text="🔎", style="Search.TLabel")
-        search_label.pack(side="left", padx=(5, 0))
         window_area = ttk.Frame(header, style="App.TFrame")
         window_area.pack(side="right")
         ttk.Button(window_area, text="⛭", width=3, style="Gear.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
@@ -603,7 +601,7 @@ class MonitorApp(tk.Tk):
         self.sprite_images = self.load_sprites()
         self.sprite_frame_index = 0
         self.animation_tick = 0
-        for drag_widget in (header, title_area, title_label, search_label):
+        for drag_widget in (header, title_area, title_label):
             drag_widget.bind("<ButtonPress-1>", self.begin_window_drag)
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
@@ -780,6 +778,29 @@ class MonitorApp(tk.Tk):
             self.notes_background_window.wm_attributes("-topmost", self.topmost_var.get())
         self.save_settings()
 
+    def add_popup_header(self, popup: tk.Toplevel, title: str, close_command: Any) -> None:
+        """Give auxiliary windows the same compact frameless header as the app."""
+        header = ttk.Frame(popup, style="App.TFrame", padding=(5, 4))
+        header.pack(fill="x")
+        title_area = ttk.Frame(header, style="App.TFrame")
+        title_area.pack(side="left", fill="x", expand=True)
+        icon = ttk.Label(title_area, image=self.header_icon, style="App.TLabel")
+        icon.pack(side="left")
+        label = ttk.Label(title_area, text=title, style="Control.TLabel")
+        label.pack(side="left", padx=(6, 0))
+        ttk.Button(header, text="×", width=3, style="Window.TButton", command=close_command).pack(side="right")
+
+        def begin_drag(event: tk.Event[Any]) -> None:
+            popup._drag_offset = (event.x_root - popup.winfo_x(), event.y_root - popup.winfo_y())
+
+        def drag(event: tk.Event[Any]) -> None:
+            offset_x, offset_y = getattr(popup, "_drag_offset", (0, 0))
+            popup.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+
+        for widget in (header, title_area, icon, label):
+            widget.bind("<ButtonPress-1>", begin_drag)
+            widget.bind("<B1-Motion>", drag)
+
     def open_settings(self) -> None:
         if self.settings_window is not None and self.settings_window.winfo_exists():
             self.settings_window.deiconify()
@@ -790,9 +811,12 @@ class MonitorApp(tk.Tk):
         self.settings_window = popup
         popup.title(f"{APP_NAME} Settings")
         popup.resizable(False, False)
+        popup.overrideredirect(True)
+        popup.iconphoto(True, self.app_icon)
         popup.transient(self)
         popup.protocol("WM_DELETE_WINDOW", self.close_settings)
         popup.bind("<Configure>", self.schedule_settings_background_sync, add="+")
+        self.add_popup_header(popup, "Settings", self.close_settings)
         card = ttk.Frame(popup, style="Card.TFrame", padding=16)
         card.pack(fill="both", expand=True)
         theme_area = ttk.Frame(card, style="Card.TFrame")
@@ -881,9 +905,11 @@ class MonitorApp(tk.Tk):
         popup.iconphoto(True, self.app_icon)
         popup.geometry("360x260")
         popup.minsize(220, 160)
+        popup.overrideredirect(True)
         popup.transient(self)
         popup.protocol("WM_DELETE_WINDOW", self.close_notes)
         popup.bind("<Configure>", self.schedule_notes_background_sync, add="+")
+        self.add_popup_header(popup, "Notes", self.close_notes)
         tab_bar = ttk.Frame(popup, style="Card.TFrame", padding=(6, 6, 6, 0))
         tab_bar.pack(fill="x")
         self.notes_tabs_frame = ttk.Frame(tab_bar, style="Card.TFrame")
