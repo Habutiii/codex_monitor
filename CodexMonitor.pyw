@@ -31,6 +31,7 @@ RECENT_SESSION_HOURS = 10
 IDLE_AFTER_SECONDS = 2 * 60 * 60
 ACTIVE_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 FINISHED_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
+ANIMATION_MS = 500
 MIN_WINDOW_WIDTH = 440
 MIN_WINDOW_HEIGHT = 255
 SPRITE_TOP = 0
@@ -257,13 +258,13 @@ class SessionFile:
 
     @property
     def name(self) -> str:
-        """Return a human-readable session label, never a workspace folder name."""
-        title = " ".join(self.title.split())
-        session_id = self.session_id or self.path.stem.removeprefix("rollout-")
-        if title:
-            prefix = title[:46].rstrip() + ("..." if len(title) > 46 else "")
-            return f"{prefix} [{session_id[:8]}]"
-        return f"Session {session_id[:8]}"
+        """Return a session title followed by the current project/folder name."""
+        title = " ".join((self.title or self.ending).split())
+        if not title:
+            title = "Untitled session"
+        title = title[:58].rstrip() + ("..." if len(title) > 58 else "")
+        project = self.cwd.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or "No project"
+        return f"{title} - {project}"
 
     def is_relevant(self, now: float) -> bool:
         age = now - self.last_event_at
@@ -403,6 +404,7 @@ class MonitorApp(tk.Tk):
         self.settings_window: tk.Toplevel | None = None
         self.hover_popup: tk.Toplevel | None = None
         self.hover_label: tk.Label | None = None
+        self.hover_item: ttk.Frame | None = None
         self.row_widgets: dict[str, dict[str, Any]] = {}
 
         self.container = ttk.Frame(self, style="App.TFrame", padding=16)
@@ -413,11 +415,9 @@ class MonitorApp(tk.Tk):
         title_area.pack(side="left", fill="x", expand=True)
         title_label = ttk.Label(title_area, text=APP_NAME, style="Title.TLabel")
         title_label.pack(anchor="w")
-        subtitle_label = ttk.Label(title_area, text="Live local-session activity", style="Subtitle.TLabel")
-        subtitle_label.pack(anchor="w", pady=(2, 0))
         window_area = ttk.Frame(header, style="App.TFrame")
         window_area.pack(side="right")
-        ttk.Button(window_area, text="Settings", style="Window.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
+        ttk.Button(window_area, text="⚙", width=3, style="Window.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
         ttk.Button(window_area, text="—", width=3, style="Window.TButton", command=self.minimize_window).grid(row=0, column=1, padx=(0, 3))
         ttk.Button(window_area, text="×", width=3, style="Window.TButton", command=self.on_close).grid(row=0, column=2)
         self.theme_buttons: dict[str, ttk.Button] = {}
@@ -426,6 +426,7 @@ class MonitorApp(tk.Tk):
         sessions_card.pack(fill="x", pady=(14, 10))
         self.rows_frame = ttk.Frame(sessions_card, style="Card.TFrame")
         self.rows_frame.pack(fill="x")
+        self.rows_frame.columnconfigure(0, weight=1)
         self.empty_label = ttk.Label(self.rows_frame, text="No recent Codex sessions", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
         self.resize_grip = ttk.Label(self.container, text="◢", style="Resize.TLabel", cursor="size_nw_se")
@@ -437,22 +438,26 @@ class MonitorApp(tk.Tk):
         self.sprite_images = self.load_sprites()
         self.sprite_frame_index = 0
         self.animation_tick = 0
-        for drag_widget in (header, title_area, title_label, subtitle_label):
+        for drag_widget in (header, title_area, title_label):
             drag_widget.bind("<ButtonPress-1>", self.begin_window_drag)
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
         self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.refresh()
         self.after_idle(self.ensure_window_fits)
+        self.animate_icons()
 
     def load_sprites(self) -> dict[str, list[tk.PhotoImage]]:
-        """Use one fixed status image per row so status icons never move."""
+        """Crop animation frames; each frame remains centered in its canvas."""
         sheet = tk.PhotoImage(data=ANIMATED_SPRITES_FIXED_PNG, format="png")
         sprites: dict[str, list[tk.PhotoImage]] = {}
         for row, status in enumerate(("working", "waiting", "done", "failed", "idle")):
-            crop = tk.PhotoImage(width=64, height=64)
-            self.tk.call(str(crop), "copy", str(sheet), "-from", 0, row * 64, 64, (row + 1) * 64, "-to", 0, 0)
-            sprites[status] = [crop]
+            frames: list[tk.PhotoImage] = []
+            for column in range(7):
+                crop = tk.PhotoImage(width=64, height=64)
+                self.tk.call(str(crop), "copy", str(sheet), "-from", column * 64, row * 64, (column + 1) * 64, (row + 1) * 64, "-to", 0, 0)
+                frames.append(crop)
+            sprites[status] = frames
         self.sprite_sheet = sheet
         return sprites
 
@@ -637,10 +642,11 @@ class MonitorApp(tk.Tk):
             self.percent_label.configure(text=f"{percent}%")
         self.save_settings()
 
-    def show_response_popup(self, event: tk.Event[Any], response: str) -> None:
+    def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         text = " ".join(response.split())
         if not text:
             return
+        self.hover_item = item
         text = text[:400].rstrip() + ("..." if len(text) > 400 else "")
         if self.hover_popup is None or not self.hover_popup.winfo_exists():
             self.hover_popup = tk.Toplevel(self)
@@ -652,13 +658,23 @@ class MonitorApp(tk.Tk):
         self.hover_popup.geometry(f"+{event.x_root + 14}+{event.y_root + 14}")
         self.hover_popup.deiconify()
 
-    def move_response_popup(self, event: tk.Event[Any], response: str) -> None:
+    def move_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         if response and self.hover_popup is not None and self.hover_popup.winfo_exists():
+            self.hover_item = item
             self.hover_popup.geometry(f"+{event.x_root + 14}+{event.y_root + 14}")
 
     def hide_response_popup(self, _event: tk.Event[Any] | None = None) -> None:
+        self.after_idle(self.hide_response_popup_if_outside)
+
+    def hide_response_popup_if_outside(self) -> None:
+        target = self.winfo_containing(self.winfo_pointerx(), self.winfo_pointery())
+        while target is not None:
+            if target is self.hover_item:
+                return
+            target = target.master
         if self.hover_popup is not None and self.hover_popup.winfo_exists():
             self.hover_popup.withdraw()
+        self.hover_item = None
 
     def begin_window_drag(self, event: tk.Event[Any]) -> None:
         self._drag_offset = (event.x_root - self.winfo_x(), event.y_root - self.winfo_y())
@@ -715,21 +731,23 @@ class MonitorApp(tk.Tk):
         for name in list(self.row_widgets):
             if name not in shown:
                 widgets = self.row_widgets.pop(name)
-                widgets["canvas"].destroy()
-                widgets["label"].destroy()
-                widgets["ending"].destroy()
+                widgets["item"].destroy()
         self.empty_label.pack_forget()
         if not rows:
             self.empty_label.pack(anchor="w")
         for index, (name, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
-                canvas = tk.Canvas(self.rows_frame, width=64, height=64, highlightthickness=0, bd=0, background=THEMES[self.theme_name]["card"])
-                label = ttk.Label(self.rows_frame, style="Row.TLabel")
-                ending_label = ttk.Label(self.rows_frame, style="Ending.TLabel", justify="left", anchor="w")
+                item = ttk.Frame(self.rows_frame, style="Card.TFrame")
+                canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=THEMES[self.theme_name]["card"])
+                text_area = ttk.Frame(item, style="Card.TFrame")
+                label = ttk.Label(text_area, style="Row.TLabel")
+                ending_label = ttk.Label(text_area, style="Ending.TLabel", justify="left", anchor="w")
                 image_id = canvas.create_image(32, 32)
                 dot_id = canvas.create_oval(2, 2, 13, 13, outline="")
                 self.row_widgets[name] = {
+                    "item": item,
                     "canvas": canvas,
+                    "text_area": text_area,
                     "label": label,
                     "ending": ending_label,
                     "image_id": image_id,
@@ -738,25 +756,36 @@ class MonitorApp(tk.Tk):
                     "response": full_response,
                 }
             widgets = self.row_widgets[name]
-            canvas, label, ending_label = widgets["canvas"], widgets["label"], widgets["ending"]
-            row = index * 2
-            canvas.grid(row=row, column=0, rowspan=2, pady=2, sticky="nw")
-            label.grid(row=row, column=1, padx=(12, 0), pady=(2, 0), sticky="w")
-            ending_label.grid(row=row + 1, column=1, padx=(12, 0), pady=(0, 5), sticky="w")
+            item, canvas = widgets["item"], widgets["canvas"]
+            text_area, label, ending_label = widgets["text_area"], widgets["label"], widgets["ending"]
+            item.grid(row=index, column=0, sticky="ew", pady=2)
+            canvas.pack(side="left", anchor="n")
+            text_area.pack(side="left", fill="x", expand=True, padx=(12, 0))
+            label.pack(anchor="w", pady=(2, 0))
+            ending_label.pack(anchor="w", pady=(0, 5))
             widgets["status"] = status
             widgets["response"] = full_response
             canvas.itemconfigure(widgets["dot_id"], fill=COLORS[status])
             frames = self.sprite_images.get(status, [])
             canvas.itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index % len(frames)] if frames else "")
-            label.configure(text=f"{name}  —  {LABELS[status]}")
+            label.configure(text=name)
             ending_label.configure(text=ending)
-            for widget in (canvas, label, ending_label):
-                widget.bind("<Enter>", lambda event, current=widgets: self.show_response_popup(event, current["response"]))
-                widget.bind("<Motion>", lambda event, current=widgets: self.move_response_popup(event, current["response"]))
+            for widget in (item, canvas, text_area, label, ending_label):
+                widget.bind("<Enter>", lambda event, current=widgets, row_item=item: self.show_response_popup(event, current["response"], row_item))
+                widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
                 widget.bind("<Leave>", self.hide_response_popup)
         self.set_alpha()
         self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
+
+    def animate_icons(self) -> None:
+        """Advance only the frame image; the canvas coordinates never change."""
+        self.sprite_frame_index = (self.sprite_frame_index + 1) % 7
+        for widgets in self.row_widgets.values():
+            frames = self.sprite_images.get(widgets["status"], [])
+            if frames:
+                widgets["canvas"].itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index])
+        self.after(ANIMATION_MS, self.animate_icons)
 
     def on_close(self) -> None:
         self.save_settings()
