@@ -26,7 +26,7 @@ APP_NAME = "Codex Session Monitor"
 POLL_MS = 1_000
 DISCOVER_EVERY_SECONDS = 2
 TAIL_BYTES = 256 * 1024
-TITLE_SCAN_BYTES = 64 * 1024
+TITLE_SCAN_BYTES = 512 * 1024
 # Keep newly discovered active and completed threads visible for ten hours.
 # This applies equally at startup and to sessions discovered while the app runs.
 RECENT_SESSION_HOURS = 10
@@ -258,12 +258,24 @@ class SessionFile:
                 record = safe_json(first)
                 if record is not None:
                     self.apply_record(record)
-                # The first user request is usually near the start and provides
-                # the session label. Read only a small prefix before the tail.
+                # The IDE setup context can precede the first real request.
+                # Scan complete records until that request is found, without
+                # treating the following agent reply as a title.
                 if not self.title:
-                    head_end = min(size, TITLE_SCAN_BYTES)
-                    self._consume(handle.read(max(0, head_end - handle.tell())))
-                    self.remainder = b""
+                    scanned = 0
+                    while scanned < TITLE_SCAN_BYTES:
+                        line = handle.readline()
+                        if not line:
+                            break
+                        scanned += len(line)
+                        record = safe_json(line)
+                        if record is not None:
+                            self.records_seen += 1
+                            self.apply_record(record)
+                        else:
+                            self.invalid_records += 1
+                        if self.title:
+                            break
                 start = max(handle.tell(), size - TAIL_BYTES)
                 if start > handle.tell():
                     handle.seek(start)
