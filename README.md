@@ -44,7 +44,7 @@ It includes recent Codex rollout files with valid session metadata, including VS
 | Failed | `error` or `turn_aborted` |
 | Idle | An unfinished session with no activity for 15 minutes |
 
-Finished sessions remain visible for five minutes. The initial read uses metadata plus a bounded file tail; after that, the app reads only appended JSONL bytes. Session status is refreshed approximately every second.
+Active and finished sessions remain visible for one hour after their last rollout-file activity. At startup the monitor immediately reconstructs those recent sessions from metadata plus a bounded file tail; after that, it discovers new rollout files within about two seconds and reads only appended JSONL bytes. Session status is refreshed approximately every second.
 
 ## Privacy and settings
 
