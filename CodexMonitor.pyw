@@ -35,7 +35,7 @@ IDLE_AFTER_SECONDS = 2 * 60 * 60
 ACTIVE_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 FINISHED_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 ANIMATION_MS = 500
-MIN_WINDOW_WIDTH = 440
+MIN_WINDOW_WIDTH = 220
 MIN_WINDOW_HEIGHT = 255
 INSTANCE_PORT = 45873
 INSTANCE_CLOSE_MESSAGE = b"codex-session-monitor:replace"
@@ -527,14 +527,20 @@ class MonitorApp(tk.Tk):
             value=hover_default_font if saved_hover_font in {"", "Cascadia Mono"} else self.saved_font("hover_font", hover_default_font)
         )
         self.hover_font_size_var = tk.IntVar(value=int(self.settings.get("hover_font_size", 8)))
+        self.notes = self.load_notes()
+        self.current_note_id = self.notes[0]["id"]
         self.settings_window: tk.Toplevel | None = None
+        self.notes_window: tk.Toplevel | None = None
+        self.notes_editor: tk.Text | None = None
+        self.notes_title_var = tk.StringVar()
+        self.note_tab_buttons: dict[str, ttk.Button] = {}
         self.hover_popup: tk.Toplevel | None = None
         self.hover_label: tk.Label | None = None
         self.hover_item: ttk.Frame | None = None
         self.instance_server: socket.socket | None = None
         self.row_widgets: dict[str, dict[str, Any]] = {}
 
-        self.container = ttk.Frame(self, style="App.TFrame", padding=16)
+        self.container = ttk.Frame(self, style="App.TFrame", padding=5)
         self.container.pack(fill="both", expand=True)
         header = ttk.Frame(self.container, style="App.TFrame")
         header.pack(fill="x")
@@ -545,8 +551,9 @@ class MonitorApp(tk.Tk):
         window_area = ttk.Frame(header, style="App.TFrame")
         window_area.pack(side="right")
         ttk.Button(window_area, text="⛭", width=3, style="Gear.TButton", command=self.open_settings).grid(row=0, column=0, padx=(0, 3))
-        ttk.Button(window_area, text="—", width=3, style="Window.TButton", command=self.minimize_window).grid(row=0, column=1, padx=(0, 3))
-        ttk.Button(window_area, text="×", width=3, style="Window.TButton", command=self.on_close).grid(row=0, column=2)
+        ttk.Button(window_area, text="Note", width=5, style="Window.TButton", command=self.open_notes).grid(row=0, column=1, padx=(0, 3))
+        ttk.Button(window_area, text="—", width=3, style="Window.TButton", command=self.minimize_window).grid(row=0, column=2, padx=(0, 3))
+        ttk.Button(window_area, text="×", width=3, style="Window.TButton", command=self.on_close).grid(row=0, column=3)
         self.theme_buttons: dict[str, ttk.Button] = {}
 
         sessions_card = ttk.Frame(self.container, style="Card.TFrame", padding=10)
@@ -634,6 +641,26 @@ class MonitorApp(tk.Tk):
         value = str(self.settings.get(setting, fallback))
         return value if value in self.available_fonts else fallback
 
+    def load_notes(self) -> list[dict[str, str]]:
+        value = self.settings.get("notes", "")
+        if isinstance(value, list):
+            notes = [
+                {
+                    "id": str(note.get("id") or f"note-{index}"),
+                    "title": str(note.get("title") or f"Note {index + 1}"),
+                    "content": str(note.get("content") or ""),
+                }
+                for index, note in enumerate(value)
+                if isinstance(note, dict)
+            ]
+            if notes:
+                return notes
+        # Migrate the v0.2/v0.3 single note into the first tab.
+        return [{"id": "note-1", "title": "Note 1", "content": str(value or "")}]
+
+    def current_note(self) -> dict[str, str]:
+        return next(note for note in self.notes if note["id"] == self.current_note_id)
+
     def apply_geometry(self) -> None:
         geometry = self.settings.get("geometry")
         if isinstance(geometry, str) and geometry:
@@ -651,6 +678,7 @@ class MonitorApp(tk.Tk):
             "ending_font_size": self.ending_font_size_var.get(),
             "hover_font": self.hover_font_var.get(),
             "hover_font_size": self.hover_font_size_var.get(),
+            "notes": self.notes,
             "geometry": self.geometry(),
             "theme": self.theme_name,
         }
@@ -686,6 +714,8 @@ class MonitorApp(tk.Tk):
 
     def set_topmost(self) -> None:
         self.set_window_attribute("-topmost", self.topmost_var.get())
+        if self.notes_window is not None and self.notes_window.winfo_exists():
+            self.notes_window.wm_attributes("-topmost", self.topmost_var.get())
         self.save_settings()
 
     def open_settings(self) -> None:
@@ -754,6 +784,110 @@ class MonitorApp(tk.Tk):
         self.settings_window = None
         self.save_settings()
 
+    def open_notes(self) -> None:
+        if self.notes_window is not None and self.notes_window.winfo_exists():
+            self.notes_window.deiconify()
+            self.notes_window.lift()
+            self.notes_editor.focus_set()
+            return
+        popup = tk.Toplevel(self)
+        self.notes_window = popup
+        popup.title(f"{APP_NAME} Notes")
+        popup.iconphoto(True, self.app_icon)
+        popup.geometry("360x260")
+        popup.minsize(220, 160)
+        popup.transient(self)
+        popup.protocol("WM_DELETE_WINDOW", self.close_notes)
+        tab_bar = ttk.Frame(popup, style="Card.TFrame", padding=(6, 6, 6, 0))
+        tab_bar.pack(fill="x")
+        self.notes_tabs_frame = ttk.Frame(tab_bar, style="Card.TFrame")
+        self.notes_tabs_frame.pack(side="left", fill="x", expand=True)
+        ttk.Button(tab_bar, text="+", width=3, style="Window.TButton", command=self.add_note).pack(side="right")
+        title_row = ttk.Frame(popup, style="Card.TFrame", padding=(10, 8, 10, 5))
+        title_row.pack(fill="x")
+        ttk.Label(title_row, text="Title", style="Control.TLabel").pack(side="left", padx=(0, 8))
+        title_entry = ttk.Entry(title_row, textvariable=self.notes_title_var)
+        title_entry.pack(side="left", fill="x", expand=True)
+        title_entry.bind("<KeyRelease>", self.save_notes)
+        editor = tk.Text(popup, wrap="word", undo=True, padx=10, pady=8, borderwidth=0, highlightthickness=0)
+        editor.pack(fill="both", expand=True)
+        editor.bind("<KeyRelease>", self.save_notes)
+        editor.bind("<FocusOut>", self.save_notes)
+        self.notes_editor = editor
+        self.select_note(self.current_note_id, save_current=False)
+        self.apply_theme()
+        popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
+        popup.wm_attributes("-topmost", self.topmost_var.get())
+        editor.focus_set()
+
+    def save_notes(self, _event: tk.Event[Any] | None = None) -> None:
+        if self.notes_editor is not None and self.notes_editor.winfo_exists():
+            note = self.current_note()
+            note["title"] = self.notes_title_var.get().strip() or "Untitled note"
+            note["content"] = self.notes_editor.get("1.0", "end-1c")
+            tab = self.note_tab_buttons.get(note["id"])
+            if tab is not None:
+                tab.configure(text=self.tab_title(note["title"]))
+            self.save_settings()
+
+    def tab_title(self, title: str) -> str:
+        return title[:18].rstrip() + ("..." if len(title) > 18 else "")
+
+    def render_note_tabs(self) -> None:
+        for child in self.notes_tabs_frame.winfo_children():
+            child.destroy()
+        self.note_tab_buttons = {}
+        for note in self.notes:
+            tab = ttk.Frame(self.notes_tabs_frame, style="Card.TFrame")
+            tab.pack(side="left", padx=(0, 3))
+            active = note["id"] == self.current_note_id
+            button = ttk.Button(
+                tab,
+                text=self.tab_title(note["title"]),
+                style="ThemeActive.TButton" if active else "Theme.TButton",
+                command=lambda note_id=note["id"]: self.select_note(note_id),
+            )
+            button.pack(side="left")
+            ttk.Button(tab, text="×", width=2, style="Window.TButton", command=lambda note_id=note["id"]: self.delete_note(note_id)).pack(side="left")
+            self.note_tab_buttons[note["id"]] = button
+
+    def select_note(self, note_id: str, save_current: bool = True) -> None:
+        if save_current and self.notes_editor is not None:
+            self.save_notes()
+        self.current_note_id = note_id
+        note = self.current_note()
+        self.notes_title_var.set(note["title"])
+        if self.notes_editor is not None:
+            self.notes_editor.delete("1.0", "end")
+            self.notes_editor.insert("1.0", note["content"])
+        self.render_note_tabs()
+
+    def add_note(self) -> None:
+        self.save_notes()
+        note_id = f"note-{time.time_ns()}"
+        self.notes.append({"id": note_id, "title": f"Note {len(self.notes) + 1}", "content": ""})
+        self.select_note(note_id, save_current=False)
+        self.save_settings()
+
+    def delete_note(self, note_id: str) -> None:
+        self.save_notes()
+        self.notes = [note for note in self.notes if note["id"] != note_id]
+        if not self.notes:
+            self.notes = [{"id": f"note-{time.time_ns()}", "title": "Note 1", "content": ""}]
+        if self.current_note_id == note_id:
+            self.current_note_id = self.notes[0]["id"]
+            self.select_note(self.current_note_id, save_current=False)
+        else:
+            self.render_note_tabs()
+        self.save_settings()
+
+    def close_notes(self) -> None:
+        self.save_notes()
+        if self.notes_window is not None:
+            self.notes_window.destroy()
+        self.notes_window = None
+        self.notes_editor = None
+
     def set_max_items(self, _event: tk.Event[Any] | None = None) -> None:
         try:
             maximum = self.max_items_var.get()
@@ -780,7 +914,7 @@ class MonitorApp(tk.Tk):
         self.configure(bg=palette["bg"])
         self.style.configure("App.TFrame", background=palette["bg"])
         self.style.configure("Card.TFrame", background=palette["card"], relief="flat")
-        self.style.configure("Title.TLabel", background=palette["bg"], foreground=palette["text"], font=("Segoe UI", 13, "bold"))
+        self.style.configure("Title.TLabel", background=palette["bg"], foreground=palette["text"], font=("Segoe UI", 12, "bold"))
         self.style.configure("Subtitle.TLabel", background=palette["bg"], foreground=palette["muted"], font=("Segoe UI", 9))
         self.style.configure("Resize.TLabel", background=palette["bg"], foreground=palette["muted"], font=("Segoe UI", 9))
         self.style.configure("Project.TLabel", background=palette["card"], foreground=palette["muted"], font=("Segoe UI", 8, "bold"))
@@ -793,7 +927,7 @@ class MonitorApp(tk.Tk):
         self.style.configure("Theme.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(6, 3))
         self.style.configure("ThemeActive.TButton", background=palette["accent"], foreground="#ffffff", borderwidth=0, padding=(6, 3))
         self.style.configure("Window.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2))
-        self.style.configure("Gear.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2), font=("Segoe UI Symbol", 11))
+        self.style.configure("Gear.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2))
         for name, button in self.theme_buttons.items():
             button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
         if self.settings_window is not None and self.settings_window.winfo_exists():
@@ -803,6 +937,15 @@ class MonitorApp(tk.Tk):
                 troughcolor=palette["border"],
                 activebackground=palette["accent"],
                 highlightbackground=palette["card"],
+            )
+        if self.notes_window is not None and self.notes_window.winfo_exists() and self.notes_editor is not None:
+            self.notes_window.configure(bg=palette["card"])
+            self.notes_editor.configure(
+                background=palette["card"],
+                foreground=palette["text"],
+                insertbackground=palette["text"],
+                selectbackground=palette["accent"],
+                font=(self.item_font_var.get(), self.item_font_size_var.get()),
             )
         for widgets in self.row_widgets.values():
             widgets["canvas"].configure(background=palette["card"])
@@ -818,6 +961,8 @@ class MonitorApp(tk.Tk):
         self.set_window_attribute("-alpha", percent / 100)
         if self.hover_popup is not None and self.hover_popup.winfo_exists():
             self.hover_popup.wm_attributes("-alpha", percent / 100)
+        if self.notes_window is not None and self.notes_window.winfo_exists():
+            self.notes_window.wm_attributes("-alpha", percent / 100)
         if self.settings_window is not None and self.settings_window.winfo_exists():
             self.percent_label.configure(text=f"{percent}%")
         self.save_settings()
@@ -996,6 +1141,7 @@ class MonitorApp(tk.Tk):
         self.after(ANIMATION_MS, self.animate_icons)
 
     def on_close(self) -> None:
+        self.save_notes()
         self.save_settings()
         if self.instance_server is not None:
             self.instance_server.close()
