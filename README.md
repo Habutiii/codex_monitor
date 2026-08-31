@@ -34,7 +34,7 @@ The monitor reads only local rollout logs under:
 %USERPROFILE%\.codex\sessions\**\rollout-*.jsonl
 ```
 
-It includes rollout files whose `session_meta.payload.source` is `vscode`, names a session from its workspace/cwd basename, and displays one most-relevant row per workspace.
+It includes recent Codex rollout files with valid session metadata, including VS Code, app-server, and child-agent sessions even when their `source` tag differs. Each row is named from its workspace/cwd basename, with one most-relevant row per workspace.
 
 | Status | Persisted Codex event |
 | --- | --- |
@@ -56,4 +56,4 @@ Always-on-top, transparency, and window position are persisted separately in:
 %LOCALAPPDATA%\CodexSessionMonitor\settings.json
 ```
 
-Use the sun and moon buttons in the window header to select the light or dark theme. The choice is saved with the other window preferences.
+Use the sun and moon buttons in the draggable window header to select the light or dark theme. The header matches the selected app background and includes minimize and close controls. The choice is saved with the other window preferences.

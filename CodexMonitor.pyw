@@ -193,8 +193,10 @@ class SessionFile:
             return
 
     @property
-    def is_vscode(self) -> bool:
-        return self.source == "vscode"
+    def is_codex_session(self) -> bool:
+        # VS Code normally records source="vscode", but app-server, child-agent,
+        # and older rollout versions can use a different or missing source tag.
+        return bool(self.cwd or self.session_id)
 
     @property
     def name(self) -> str:
@@ -248,7 +250,7 @@ class SessionReader:
         priority = {"working": 4, "waiting": 3, "failed": 2, "done": 1, "idle": 0}
         unique: dict[str, SessionFile] = {}
         for tracker in self.files.values():
-            if not tracker.is_vscode or not tracker.is_relevant(now):
+            if not tracker.is_codex_session or not tracker.is_relevant(now):
                 continue
             key = os.path.normcase(tracker.cwd) or tracker.session_id or str(tracker.path)
             current = unique.get(key)
@@ -267,6 +269,8 @@ class MonitorApp(tk.Tk):
         self.settings = self.load_settings()
         self.title(APP_NAME)
         self.resizable(False, False)
+        self.overrideredirect(True)
+        self._drag_offset = (0, 0)
         self.configure(padx=0, pady=0)
         self.set_window_attribute("-topmost", bool(self.settings.get("always_on_top", False)))
         self.set_window_attribute("-alpha", float(self.settings.get("alpha", 1.0)))
@@ -285,10 +289,16 @@ class MonitorApp(tk.Tk):
         header.pack(fill="x")
         title_area = ttk.Frame(header, style="App.TFrame")
         title_area.pack(side="left", fill="x", expand=True)
-        ttk.Label(title_area, text=APP_NAME, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(title_area, text="Live local-session activity", style="Subtitle.TLabel").pack(anchor="w", pady=(2, 0))
+        title_label = ttk.Label(title_area, text=APP_NAME, style="Title.TLabel")
+        title_label.pack(anchor="w")
+        subtitle_label = ttk.Label(title_area, text="Live local-session activity", style="Subtitle.TLabel")
+        subtitle_label.pack(anchor="w", pady=(2, 0))
+        window_area = ttk.Frame(header, style="App.TFrame")
+        window_area.pack(side="right")
+        ttk.Button(window_area, text="—", width=3, style="Window.TButton", command=self.minimize_window).grid(row=0, column=0, padx=(0, 3))
+        ttk.Button(window_area, text="×", width=3, style="Window.TButton", command=self.on_close).grid(row=0, column=1)
         theme_area = ttk.Frame(header, style="App.TFrame")
-        theme_area.pack(side="right")
+        theme_area.pack(side="right", padx=(0, 10))
         ttk.Label(theme_area, text="Theme", style="Subtitle.TLabel").grid(row=0, column=0, padx=(0, 6))
         self.theme_buttons = {
             "light": ttk.Button(theme_area, text="☀", width=3, command=lambda: self.set_theme("light")),
@@ -301,7 +311,7 @@ class MonitorApp(tk.Tk):
         sessions_card.pack(fill="x", pady=(14, 10))
         self.rows_frame = ttk.Frame(sessions_card, style="Card.TFrame")
         self.rows_frame.pack(fill="x")
-        self.empty_label = ttk.Label(self.rows_frame, text="No recent VS Code Codex sessions", style="Empty.TLabel")
+        self.empty_label = ttk.Label(self.rows_frame, text="No recent Codex sessions", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
 
         controls = ttk.Frame(self.container, style="Card.TFrame", padding=10)
@@ -312,13 +322,19 @@ class MonitorApp(tk.Tk):
         )
         ttk.Label(controls, text="Transparency", style="Control.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("alpha", 1.0)) * 100))
-        self.transparency_scale = ttk.Scale(
+        self.transparency_scale = tk.Scale(
             controls,
             from_=10,
             to=100,
             variable=self.alpha_var,
             command=self.set_alpha,
-            style="Modern.Horizontal.TScale",
+            orient="horizontal",
+            showvalue=False,
+            resolution=1,
+            length=170,
+            sliderrelief="raised",
+            highlightthickness=0,
+            bd=0,
         )
         self.transparency_scale.grid(
             row=1, column=1, sticky="ew", padx=(12, 0), pady=(10, 0)
@@ -328,6 +344,9 @@ class MonitorApp(tk.Tk):
         self.percent_label.grid(row=1, column=2, padx=(8, 0), pady=(10, 0))
         self.sprite_images = self.load_sprites()
         self.animation_tick = 0
+        for drag_widget in (header, title_area, title_label, subtitle_label):
+            drag_widget.bind("<ButtonPress-1>", self.begin_window_drag)
+            drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
         self.refresh()
         self.animate_icons()
@@ -411,18 +430,17 @@ class MonitorApp(tk.Tk):
         self.style.configure("Control.TLabel", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 9))
         self.style.configure("Modern.TCheckbutton", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 10, "bold"))
         self.style.map("Modern.TCheckbutton", background=[("active", palette["card"])], foreground=[("active", palette["accent"])])
-        self.style.configure(
-            "Modern.Horizontal.TScale",
-            background=palette["card"],
-            troughcolor=palette["border"],
-            sliderlength=22,
-            borderwidth=0,
-        )
-        self.style.map("Modern.Horizontal.TScale", background=[("active", palette["accent"]), ("!disabled", palette["accent"])])
         self.style.configure("Theme.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(6, 3))
         self.style.configure("ThemeActive.TButton", background=palette["accent"], foreground="#ffffff", borderwidth=0, padding=(6, 3))
+        self.style.configure("Window.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(4, 2))
         for name, button in self.theme_buttons.items():
             button.configure(style="ThemeActive.TButton" if name == self.theme_name else "Theme.TButton")
+        self.transparency_scale.configure(
+            background=palette["card"],
+            troughcolor=palette["border"],
+            activebackground=palette["accent"],
+            highlightbackground=palette["card"],
+        )
         for widgets in self.row_widgets.values():
             widgets["canvas"].configure(background=palette["card"])
             widgets["label"].configure(style="Row.TLabel")
@@ -431,6 +449,26 @@ class MonitorApp(tk.Tk):
         percent = min(100, max(10, round(self.alpha_var.get())))
         self.set_window_attribute("-alpha", percent / 100)
         self.percent_label.configure(text=f"{percent}%")
+
+    def begin_window_drag(self, event: tk.Event[Any]) -> None:
+        self._drag_offset = (event.x_root - self.winfo_x(), event.y_root - self.winfo_y())
+
+    def drag_window(self, event: tk.Event[Any]) -> None:
+        x = event.x_root - self._drag_offset[0]
+        y = event.y_root - self._drag_offset[1]
+        self.geometry(f"+{x}+{y}")
+
+    def minimize_window(self) -> None:
+        # Temporarily restore native chrome so iconify works across Tk platforms.
+        self.overrideredirect(False)
+        self.iconify()
+        self.after(200, self.restore_custom_chrome)
+
+    def restore_custom_chrome(self) -> None:
+        if self.state() == "normal":
+            self.overrideredirect(True)
+        else:
+            self.after(200, self.restore_custom_chrome)
 
     def refresh(self) -> None:
         rows = self.reader.sessions()
