@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sqlite3
 import socket
 import sys
@@ -151,6 +152,14 @@ def is_ide_setup_context(text: str) -> bool:
     return text.lstrip().lower().startswith("# context from my ide setup")
 
 
+def usable_conversation_title(text: str) -> str:
+    """Extract the real request from VS Code's injected IDE setup context."""
+    if not is_ide_setup_context(text):
+        return " ".join(text.split())
+    match = re.search(r"(?ims)^.*?^##\s*my request:\s*(.+)$", text)
+    return " ".join(match.group(1).split()) if match else ""
+
+
 def close_previous_instance() -> None:
     """Ask an existing monitor instance to exit before this one starts."""
     try:
@@ -210,8 +219,10 @@ class SessionFile:
         event = str(payload.get("type") or "").lower()
         if event == "user_message":
             message = payload.get("message")
-            if isinstance(message, str) and message.strip() and not is_ide_setup_context(message) and (not self.title or is_ide_setup_context(self.title)):
-                self.title = message
+            if isinstance(message, str):
+                candidate = usable_conversation_title(message)
+                if candidate and (not self.title or is_ide_setup_context(self.title)):
+                    self.title = candidate
         if event == "agent_message":
             message = payload.get("message")
             if isinstance(message, str):
@@ -363,7 +374,6 @@ class SessionReader:
         self.raw_thread_titles: dict[str, str] = {}
         self.pending_title_ids: set[str] = set()
         self.thread_title_error = ""
-        self.title_diagnostics: dict[str, str] = {}
         self._last_discovery = 0.0
         self._last_debug_snapshot: tuple[tuple[str, str, str, str, str, bool], ...] = ()
 
@@ -413,7 +423,13 @@ class SessionReader:
                 found = {thread_id: title for thread_id, title in rows if isinstance(title, str) and title.strip()}
                 self.raw_thread_titles.update(found)
                 self.pending_title_ids.difference_update(found)
-                self.thread_titles.update({thread_id: title for thread_id, title in found.items() if not is_ide_setup_context(title)})
+                self.thread_titles.update(
+                    {
+                        thread_id: cleaned
+                        for thread_id, title in found.items()
+                        if (cleaned := usable_conversation_title(title))
+                    }
+                )
                 self.thread_title_error = ""
             finally:
                 connection.close()
@@ -444,17 +460,6 @@ class SessionReader:
                 unique[key] = tracker
         rows = [(item.name, item.project_name, item.display_status(now), item.ending_preview, item.ending, item.last_event_at) for item in unique.values()]
         rows = sorted(rows, key=lambda row: (-priority[row[2]], -row[5], row[0].lower()))
-        self.title_diagnostics = {
-            item.name: (
-                f"meta id: {item.session_id or '-'}\n"
-                f"SQLite threads.title (raw): {self.raw_thread_titles.get(item.session_id, '(not found)')[:220]}\n"
-                f"SQLite title accepted: {self.thread_titles.get(item.session_id, '(not used)')[:220]}\n"
-                f"title used: {item.title[:220]}\n"
-                f"ending fallback: {item.ending[:160]}\n"
-                f"SQLite lookup: {self.thread_title_error or ('pending' if item.session_id in self.pending_title_ids else 'found')}"
-            )
-            for item in unique.values()
-        }
         snapshot = tuple(
             sorted(
                 (
@@ -547,15 +552,6 @@ class MonitorApp(tk.Tk):
         self.rows_frame.columnconfigure(0, weight=1)
         self.empty_label = ttk.Label(self.rows_frame, text="No recent Codex sessions", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
-        self.debug_label = ttk.Label(
-            self.container,
-            text="",
-            style="Ending.TLabel",
-            justify="left",
-            anchor="w",
-            wraplength=400,
-        )
-        self.debug_label.pack(fill="x", pady=(0, 8))
         self.resize_grip = ttk.Label(self.container, text="◢", style="Resize.TLabel", cursor="size_nw_se")
         self.resize_grip.place(relx=1, rely=1, anchor="se")
         self.resize_grip.bind("<ButtonPress-1>", self.begin_window_resize)
@@ -963,9 +959,6 @@ class MonitorApp(tk.Tk):
                 widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
                 widget.bind("<Leave>", self.hide_response_popup)
         self.set_alpha()
-        self.debug_label.configure(
-            text="\n\n".join(self.reader.title_diagnostics.get(name, "") for name, _, _, _, _ in rows)
-        )
         self.after_idle(self.ensure_window_fits)
         self.after(POLL_MS, self.refresh)
 
