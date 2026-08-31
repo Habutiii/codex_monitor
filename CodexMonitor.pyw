@@ -18,10 +18,11 @@ APP_NAME = "Codex Session Monitor"
 POLL_MS = 1_000
 DISCOVER_EVERY_SECONDS = 2
 TAIL_BYTES = 256 * 1024
-# Keep newly discovered active and completed threads visible for one hour.
-# This lets the monitor reconstruct useful state immediately after it starts.
-ACTIVE_FOR_SECONDS = 60 * 60
-FINISHED_FOR_SECONDS = 60 * 60
+# Keep newly discovered active and completed threads visible for ten hours.
+# This applies equally at startup and to sessions discovered while the app runs.
+RECENT_SESSION_HOURS = 10
+ACTIVE_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
+FINISHED_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 ANIMATION_MS = 140
 SPRITE_TOP = 0
 SPRITE_WIDTH = 200
