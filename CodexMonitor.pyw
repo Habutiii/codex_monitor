@@ -147,6 +147,10 @@ def safe_json(line: bytes) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def is_ide_setup_context(text: str) -> bool:
+    return text.lstrip().lower().startswith("# context from my ide setup")
+
+
 def close_previous_instance() -> None:
     """Ask an existing monitor instance to exit before this one starts."""
     try:
@@ -204,9 +208,9 @@ class SessionFile:
         if not isinstance(payload, dict):
             return
         event = str(payload.get("type") or "").lower()
-        if event == "user_message" and not self.title:
+        if event == "user_message":
             message = payload.get("message")
-            if isinstance(message, str):
+            if isinstance(message, str) and message.strip() and not is_ide_setup_context(message) and (not self.title or is_ide_setup_context(self.title)):
                 self.title = message
         if event == "agent_message":
             message = payload.get("message")
@@ -387,7 +391,13 @@ class SessionReader:
                     f"SELECT id, title FROM threads WHERE id IN ({placeholders}) AND title <> ''",
                     session_ids,
                 )
-                self.thread_titles.update({thread_id: title for thread_id, title in rows if isinstance(title, str) and title.strip()})
+                self.thread_titles.update(
+                    {
+                        thread_id: title
+                        for thread_id, title in rows
+                        if isinstance(title, str) and title.strip() and not is_ide_setup_context(title)
+                    }
+                )
             finally:
                 connection.close()
         except (OSError, sqlite3.Error, ValueError):
