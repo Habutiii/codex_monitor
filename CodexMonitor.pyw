@@ -998,21 +998,6 @@ class MonitorApp(tk.Tk):
             return
         self.background_window.geometry(f"{self.winfo_width()}x{self.winfo_height()}+{self.winfo_x()}+{self.winfo_y()}")
 
-    def create_notes_background_window(self) -> None:
-        if sys.platform != "win32" or self.notes_window is None:
-            self.apply_window_opacity()
-            return
-        background = tk.Toplevel(self)
-        background.overrideredirect(True)
-        background.configure(bg=THEMES[self.theme_name]["card"])
-        background.wm_attributes("-topmost", self.topmost_var.get())
-        self.disable_background_input(background)
-        self.disable_background_input(background)
-        self.settings_background_window = background
-        self.sync_settings_background()
-        background.lower(self.settings_window)
-        self.apply_window_opacity()
-
     def schedule_settings_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._settings_background_sync_scheduled:
             return
@@ -1038,15 +1023,14 @@ class MonitorApp(tk.Tk):
         except tk.TclError:
             pass
 
-    def schedule_notes_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
-        if self._notes_background_sync_scheduled:
+    def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
+        text = " ".join(response.split())
+        if not text:
             return
-        self._notes_background_sync_scheduled = True
-        self.after_idle(self.sync_notes_background)
-
-    def sync_notes_background(self) -> None:
-        self._notes_background_sync_scheduled = False
-        if self.notes_window is None or self.notes_background_window is None:
+        self.hover_item = item
+        text = text[:400].rstrip() + ("..." if len(text) > 400 else "")
+        if self.hover_popup is None or not self.hover_popup.winfo_exists():
+            self.hover_popup = tk.Toplevel(self)
             self.hover_popup.overrideredirect(True)
             self.hover_popup.transient(self)
             self.hover_label = tk.Label(self.hover_popup, bg="#000000", fg="#f3f6fb", justify="left", anchor="w", wraplength=360, padx=10, pady=8, font=(self.hover_font_var.get(), self.hover_font_size_var.get()))
