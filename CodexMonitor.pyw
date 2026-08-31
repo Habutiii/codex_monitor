@@ -40,7 +40,6 @@ MIN_WINDOW_WIDTH = 220
 MIN_WINDOW_HEIGHT = 255
 INSTANCE_PORT = 45873
 INSTANCE_CLOSE_MESSAGE = b"codex-session-monitor:replace"
-TRANSPARENT_COLOR = "#ff00ff"
 SPRITE_TOP = 0
 SPRITE_WIDTH = 200
 SPRITE_HEIGHT = 210
@@ -851,8 +850,8 @@ class MonitorApp(tk.Tk):
         self.set_alpha()
         if sys.platform == "win32":
             try:
-                popup.configure(bg=TRANSPARENT_COLOR)
-                popup.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
+                popup.configure(bg=THEMES[self.theme_name]["bg"])
+                popup.wm_attributes("-transparentcolor", THEMES[self.theme_name]["bg"])
                 popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
                 popup.wm_attributes("-topmost", self.topmost_var.get())
             except tk.TclError:
@@ -1008,11 +1007,14 @@ class MonitorApp(tk.Tk):
     def apply_theme(self) -> None:
         palette = THEMES[self.theme_name]
         layered = sys.platform == "win32"
-        foreground_bg = TRANSPARENT_COLOR if layered else palette["bg"]
-        card_bg = TRANSPARENT_COLOR if layered else palette["card"]
+        # Use the actual panel background as the Windows colour key.  Unlike
+        # a bright magic key, it does not tint anti-aliased text/image edges.
+        colour_key = palette["bg"]
+        foreground_bg = colour_key if layered else palette["bg"]
+        card_bg = colour_key if layered else palette["card"]
         self.configure(bg=foreground_bg)
         if layered:
-            self.set_window_attribute("-transparentcolor", TRANSPARENT_COLOR)
+            self.set_window_attribute("-transparentcolor", colour_key)
         self.style.configure("App.TFrame", background=foreground_bg)
         self.style.configure("App.TLabel", background=foreground_bg)
         self.style.configure("Card.TFrame", background=card_bg, relief="flat")
@@ -1051,7 +1053,7 @@ class MonitorApp(tk.Tk):
             self.notes_window.configure(bg=card_bg)
             if layered:
                 try:
-                    self.notes_window.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
+                    self.notes_window.wm_attributes("-transparentcolor", colour_key)
                 except tk.TclError:
                     pass
             self.notes_editor.configure(
