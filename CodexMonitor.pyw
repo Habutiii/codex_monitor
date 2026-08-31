@@ -979,7 +979,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["bg"])
         background.wm_attributes("-topmost", self.topmost_var.get())
-        self.disable_background_input(background)
+        self.capture_background_input(background, self)
         self.background_window = background
         self.sync_background_window()
         background.lower(self)
@@ -1004,6 +1004,20 @@ class MonitorApp(tk.Tk):
         self._settings_background_sync_scheduled = True
         self.after_idle(self.sync_settings_background)
 
+    def create_settings_background_window(self) -> None:
+        if sys.platform != "win32" or self.settings_window is None:
+            self.apply_window_opacity()
+            return
+        background = tk.Toplevel(self)
+        background.overrideredirect(True)
+        background.configure(bg=THEMES[self.theme_name]["card"])
+        background.wm_attributes("-topmost", self.topmost_var.get())
+        self.capture_background_input(background, self.settings_window)
+        self.settings_background_window = background
+        self.sync_settings_background()
+        background.lower(self.settings_window)
+        self.apply_window_opacity()
+
     def sync_settings_background(self) -> None:
         self._settings_background_sync_scheduled = False
         if self.settings_window is None or self.settings_background_window is None:
@@ -1015,13 +1029,23 @@ class MonitorApp(tk.Tk):
             f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
         )
 
-    def disable_background_input(self, background: tk.Toplevel) -> None:
-        """Keep a visual layer from stealing focus, clicks, or taskbar state."""
+    def capture_background_input(self, background: tk.Toplevel, target: tk.Toplevel) -> None:
+        """Consume colour-key clicks instead of letting them reach the desktop."""
         try:
-            background.wm_attributes("-disabled", True)
             background.wm_attributes("-toolwindow", True)
         except tk.TclError:
             pass
+        def activate(event: tk.Event[Any]) -> None:
+            target.lift()
+            target.focus_force()
+            target._drag_offset = (event.x_root - target.winfo_x(), event.y_root - target.winfo_y())
+
+        def drag(event: tk.Event[Any]) -> None:
+            offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
+            target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+
+        background.bind("<ButtonPress-1>", activate)
+        background.bind("<B1-Motion>", drag)
 
     def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         text = " ".join(response.split())
