@@ -869,6 +869,7 @@ class MonitorApp(tk.Tk):
         self.style.configure("Header.TFrame", background=foreground_bg)
         self.style.configure("Header.TLabel", background=foreground_bg)
         self.style.configure("Card.TFrame", background=card_bg, relief="flat")
+        self.style.configure("Image.TLabel", background=card_bg)
         self.style.configure("RowHit.TFrame", background=palette["card"], relief="flat")
         self.style.configure("Title.TLabel", background=foreground_bg, foreground=palette["text"], font=("Segoe UI", 12, "bold"))
         self.style.configure("Search.TLabel", background=foreground_bg, foreground=palette["text"], font=("Segoe UI Emoji", 12))
@@ -909,7 +910,7 @@ class MonitorApp(tk.Tk):
         if self.settings_background_window is not None and self.settings_background_window.winfo_exists():
             self.settings_background_window.configure(bg=palette["card"])
         for widgets in self.row_widgets.values():
-            widgets["canvas"].configure(background=card_bg)
+            widgets["image"].configure(style="Image.TLabel")
             widgets["project"].configure(style="Project.TLabel")
             widgets["label"].configure(style="Row.TLabel")
             widgets["ending"].configure(style="Ending.TLabel")
@@ -1123,31 +1124,26 @@ class MonitorApp(tk.Tk):
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
                 item = ttk.Frame(self.rows_frame, style="Card.TFrame")
-                canvas_background = THEMES[self.theme_name]["bg"] if sys.platform != "win32" else THEMES[self.theme_name]["bg"]
-                canvas = tk.Canvas(item, width=64, height=64, highlightthickness=0, bd=0, background=canvas_background)
+                image = ttk.Label(item, style="Image.TLabel")
                 text_area = ttk.Frame(item, style="Card.TFrame")
                 project_label = ttk.Label(text_area, style="Project.TLabel", width=1)
                 label = ttk.Label(text_area, style="Row.TLabel", width=1)
                 ending_label = ttk.Label(text_area, style="Ending.TLabel", justify="left", anchor="w", width=1)
-                image_id = canvas.create_image(32, 32)
-                dot_id = canvas.create_oval(2, 2, 13, 13, outline="")
                 self.row_widgets[name] = {
                     "item": item,
-                    "canvas": canvas,
+                    "image": image,
                     "text_area": text_area,
                     "project": project_label,
                     "label": label,
                     "ending": ending_label,
-                    "image_id": image_id,
-                    "dot_id": dot_id,
                     "status": status,
                     "response": full_response,
                 }
             widgets = self.row_widgets[name]
-            item, canvas = widgets["item"], widgets["canvas"]
+            item, image = widgets["item"], widgets["image"]
             text_area, project_label, label, ending_label = widgets["text_area"], widgets["project"], widgets["label"], widgets["ending"]
             item.grid(row=index, column=0, sticky="ew", pady=2)
-            canvas.pack(side="left", anchor="n")
+            image.pack(side="left", anchor="n")
             text_area.pack(side="left", fill="x", expand=True, padx=(12, 0))
             project_label.pack(anchor="w", fill="x", pady=(2, 0))
             label.pack(anchor="w", fill="x")
@@ -1155,9 +1151,8 @@ class MonitorApp(tk.Tk):
             widgets["status"] = status
             widgets["response"] = full_response
             widgets["ending_text"] = ending
-            canvas.itemconfigure(widgets["dot_id"], fill=COLORS[status])
             frames = self.sprite_images.get(status, [])
-            canvas.itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index % len(frames)] if frames else "")
+            image.configure(image=frames[self.sprite_frame_index % len(frames)] if frames else "")
             widgets["project_text"] = project
             widgets["name_text"] = name
             project_label.bind("<Configure>", lambda _event, current=widgets: self.fit_row_text(current))
@@ -1165,7 +1160,7 @@ class MonitorApp(tk.Tk):
             self.fit_row_text(widgets)
             ending_label.bind("<Configure>", lambda _event, current=widgets: self.fit_ending_text(current))
             self.fit_ending_text(widgets)
-            for widget in (item, canvas, text_area, project_label, label, ending_label):
+            for widget in (item, image, text_area, project_label, label, ending_label):
                 widget.bind("<Enter>", lambda event, current=widgets, row_item=item: self.show_response_popup(event, current["response"], row_item))
                 widget.bind("<Motion>", lambda event, current=widgets, row_item=item: self.move_response_popup(event, current["response"], row_item))
                 widget.bind("<Leave>", self.hide_response_popup)
@@ -1236,7 +1231,7 @@ class MonitorApp(tk.Tk):
         for widgets in self.row_widgets.values():
             frames = self.sprite_images.get(widgets["status"], [])
             if frames:
-                widgets["canvas"].itemconfigure(widgets["image_id"], image=frames[self.sprite_frame_index % len(frames)])
+                widgets["image"].configure(image=frames[self.sprite_frame_index % len(frames)])
         self.after(ANIMATION_MS, self.animate_icons)
 
     def on_close(self) -> None:
