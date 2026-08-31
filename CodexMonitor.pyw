@@ -312,7 +312,15 @@ class MonitorApp(tk.Tk):
         )
         ttk.Label(controls, text="Transparency", style="Control.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 0))
         self.alpha_var = tk.DoubleVar(value=round(float(self.settings.get("alpha", 1.0)) * 100))
-        ttk.Scale(controls, from_=10, to=100, variable=self.alpha_var, command=self.set_alpha).grid(
+        self.transparency_scale = ttk.Scale(
+            controls,
+            from_=10,
+            to=100,
+            variable=self.alpha_var,
+            command=self.set_alpha,
+            style="Modern.Horizontal.TScale",
+        )
+        self.transparency_scale.grid(
             row=1, column=1, sticky="ew", padx=(12, 0), pady=(10, 0)
         )
         controls.columnconfigure(1, weight=1)
@@ -403,6 +411,14 @@ class MonitorApp(tk.Tk):
         self.style.configure("Control.TLabel", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 9))
         self.style.configure("Modern.TCheckbutton", background=palette["card"], foreground=palette["text"], font=("Segoe UI", 10, "bold"))
         self.style.map("Modern.TCheckbutton", background=[("active", palette["card"])], foreground=[("active", palette["accent"])])
+        self.style.configure(
+            "Modern.Horizontal.TScale",
+            background=palette["card"],
+            troughcolor=palette["border"],
+            sliderlength=22,
+            borderwidth=0,
+        )
+        self.style.map("Modern.Horizontal.TScale", background=[("active", palette["accent"]), ("!disabled", palette["accent"])])
         self.style.configure("Theme.TButton", background=palette["button"], foreground=palette["text"], borderwidth=0, padding=(6, 3))
         self.style.configure("ThemeActive.TButton", background=palette["accent"], foreground="#ffffff", borderwidth=0, padding=(6, 3))
         for name, button in self.theme_buttons.items():
@@ -478,4 +494,3 @@ class MonitorApp(tk.Tk):
 
 if __name__ == "__main__":
     MonitorApp().mainloop()
-
