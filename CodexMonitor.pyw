@@ -196,7 +196,9 @@ class SessionFile:
     def is_codex_session(self) -> bool:
         # VS Code normally records source="vscode", but app-server, child-agent,
         # and older rollout versions can use a different or missing source tag.
-        return bool(self.cwd or self.session_id)
+        # Some VS Code rollout metadata has only a source tag, so preserve the
+        # earlier monitor's behavior and include those active files as well.
+        return bool(self.cwd or self.session_id or self.source)
 
     @property
     def name(self) -> str:
