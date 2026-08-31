@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sqlite3
+import socket
 import sys
 import time
 import textwrap
@@ -35,6 +36,8 @@ FINISHED_FOR_SECONDS = RECENT_SESSION_HOURS * 60 * 60
 ANIMATION_MS = 500
 MIN_WINDOW_WIDTH = 440
 MIN_WINDOW_HEIGHT = 255
+INSTANCE_PORT = 45873
+INSTANCE_CLOSE_MESSAGE = b"codex-session-monitor:replace"
 SPRITE_TOP = 0
 SPRITE_WIDTH = 200
 SPRITE_HEIGHT = 210
@@ -142,6 +145,24 @@ def safe_json(line: bytes) -> dict[str, Any] | None:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def close_previous_instance() -> None:
+    """Ask an existing monitor instance to exit before this one starts."""
+    try:
+        with socket.create_connection(("127.0.0.1", INSTANCE_PORT), timeout=0.4) as client:
+            client.sendall(INSTANCE_CLOSE_MESSAGE)
+    except OSError:
+        return
+    # The old Tk process handles the request on its next short event-loop tick.
+    for _ in range(20):
+        time.sleep(0.05)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", INSTANCE_PORT))
+            return
+        except OSError:
+            continue
 
 
 @dataclass
@@ -462,6 +483,7 @@ class MonitorApp(tk.Tk):
         self.hover_popup: tk.Toplevel | None = None
         self.hover_label: tk.Label | None = None
         self.hover_item: ttk.Frame | None = None
+        self.instance_server: socket.socket | None = None
         self.row_widgets: dict[str, dict[str, Any]] = {}
 
         self.container = ttk.Frame(self, style="App.TFrame", padding=16)
@@ -500,6 +522,7 @@ class MonitorApp(tk.Tk):
             drag_widget.bind("<B1-Motion>", self.drag_window)
         self.apply_theme()
         self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        self.start_instance_server()
         self.refresh()
         self.after_idle(self.ensure_window_fits)
         self.animate_icons()
@@ -522,6 +545,34 @@ class MonitorApp(tk.Tk):
             sprites[status] = frames
         self.sprite_sheet = sheet
         return sprites
+
+    def start_instance_server(self) -> None:
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", INSTANCE_PORT))
+            server.listen(1)
+            server.setblocking(False)
+            self.instance_server = server
+            self.after(100, self.poll_instance_server)
+        except OSError:
+            # If this happens, a just-closing older instance still owns the port.
+            self.after(100, self.start_instance_server)
+
+    def poll_instance_server(self) -> None:
+        if self.instance_server is None:
+            return
+        try:
+            client, _ = self.instance_server.accept()
+        except BlockingIOError:
+            self.after(100, self.poll_instance_server)
+            return
+        with client:
+            message = client.recv(len(INSTANCE_CLOSE_MESSAGE))
+        if message == INSTANCE_CLOSE_MESSAGE:
+            self.on_close()
+            return
+        self.after(100, self.poll_instance_server)
 
     def load_settings(self) -> dict[str, Any]:
         try:
@@ -898,8 +949,12 @@ class MonitorApp(tk.Tk):
 
     def on_close(self) -> None:
         self.save_settings()
+        if self.instance_server is not None:
+            self.instance_server.close()
+            self.instance_server = None
         self.destroy()
 
 
 if __name__ == "__main__":
+    close_previous_instance()
     MonitorApp().mainloop()
