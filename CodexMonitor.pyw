@@ -1143,6 +1143,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["bg"])
         background.wm_attributes("-topmost", self.topmost_var.get())
+        self.bind_background_drag(background, self)
         self.background_window = background
         self.sync_background_window()
         background.lower(self)
@@ -1168,6 +1169,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["card"])
         background.wm_attributes("-topmost", self.topmost_var.get())
+        self.bind_background_drag(background, self.notes_window)
         self.notes_background_window = background
         self.sync_notes_background()
         background.lower(self.notes_window)
@@ -1181,6 +1183,7 @@ class MonitorApp(tk.Tk):
         background.overrideredirect(True)
         background.configure(bg=THEMES[self.theme_name]["card"])
         background.wm_attributes("-topmost", self.topmost_var.get())
+        self.bind_background_drag(background, self.settings_window)
         self.settings_background_window = background
         self.sync_settings_background()
         background.lower(self.settings_window)
@@ -1202,6 +1205,18 @@ class MonitorApp(tk.Tk):
             f"{self.settings_window.winfo_width()}x{self.settings_window.winfo_height()}"
             f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
         )
+
+    def bind_background_drag(self, background: tk.Toplevel, target: tk.Toplevel) -> None:
+        """Forward pointer events through colour-key transparent headers."""
+        def begin_drag(event: tk.Event[Any]) -> None:
+            target._drag_offset = (event.x_root - target.winfo_x(), event.y_root - target.winfo_y())
+
+        def drag(event: tk.Event[Any]) -> None:
+            offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
+            target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+
+        background.bind("<ButtonPress-1>", begin_drag)
+        background.bind("<B1-Motion>", drag)
 
     def schedule_notes_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._notes_background_sync_scheduled:
