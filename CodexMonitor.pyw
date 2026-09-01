@@ -539,7 +539,7 @@ class MonitorApp(tk.Tk):
         self.rows_frame = ttk.Frame(sessions_card, style="Card.TFrame")
         self.rows_frame.pack(fill="x")
         self.rows_frame.columnconfigure(0, weight=1)
-        self.empty_label = ttk.Label(self.rows_frame, text="No recent Codex sessions", style="Empty.TLabel")
+        self.empty_label = ttk.Label(self.rows_frame, text="Loading sessions…", style="Empty.TLabel")
         self.empty_label.pack(anchor="w")
         self.resize_grip = ttk.Label(self.container, text="◢", style="Resize.TLabel", cursor="size_nw_se")
         self.resize_grip.place(relx=1, rely=1, anchor="se")
@@ -559,7 +559,9 @@ class MonitorApp(tk.Tk):
         self.after_idle(self.create_background_window)
         self.start_instance_server()
         self.write_instance_pid()
-        self.refresh()
+        # Do not synchronously scan session files during construction: allow
+        # Windows to paint the panel first, then start the potentially slow scan.
+        self.after(150, self.refresh)
         self.after_idle(self.ensure_window_fits)
         self.animate_icons()
 
@@ -1094,6 +1096,7 @@ class MonitorApp(tk.Tk):
                 widgets["item"].destroy()
         self.empty_label.pack_forget()
         if not rows:
+            self.empty_label.configure(text="No recent Codex sessions")
             self.empty_label.pack(anchor="w")
         for index, (name, project, status, ending, full_response) in enumerate(rows):
             if name not in self.row_widgets:
