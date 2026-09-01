@@ -1027,12 +1027,20 @@ class MonitorApp(tk.Tk):
             self.hover_popup = tk.Toplevel(self)
             self.hover_popup.overrideredirect(True)
             self.hover_popup.transient(self)
+            # A tooltip must sit above the main panel, Settings, and their
+            # paired transparency windows without becoming another taskbar item.
+            self.hover_popup.wm_attributes("-topmost", True)
+            try:
+                self.hover_popup.wm_attributes("-toolwindow", True)
+            except tk.TclError:
+                pass
             self.hover_label = tk.Label(self.hover_popup, bg="#000000", fg="#f3f6fb", justify="left", anchor="w", wraplength=360, padx=10, pady=8, font=(self.hover_font_var.get(), self.hover_font_size_var.get()))
             self.hover_label.pack()
         self.hover_label.configure(text=text)
         self.hover_popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
         self.hover_popup.geometry(f"+{event.x_root + 14}+{event.y_root + 14}")
         self.hover_popup.deiconify()
+        self.hover_popup.lift()
 
     def move_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         if response and self.hover_popup is not None and self.hover_popup.winfo_exists():
