@@ -711,8 +711,6 @@ class MonitorApp(tk.Tk):
         def drag(event: tk.Event[Any]) -> None:
             offset_x, offset_y = getattr(popup, "_drag_offset", (0, 0))
             popup.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
-            if popup is self.settings_window:
-                self.sync_settings_background()
 
         for widget in (header, title_area, icon, label):
             widget.bind("<ButtonPress-1>", begin_drag)
@@ -788,11 +786,7 @@ class MonitorApp(tk.Tk):
                 popup.wm_attributes("-topmost", self.topmost_var.get())
             except tk.TclError:
                 pass
-        popup.update_idletasks()
         self.create_settings_background_window()
-        # Native placement can settle after the first idle pass on Windows.
-        for delay in (25, 100, 250):
-            self.after(delay, self.sync_settings_background)
         popup.grab_set()
 
     def close_settings(self) -> None:
@@ -921,10 +915,8 @@ class MonitorApp(tk.Tk):
         background.wm_attributes("-topmost", self.topmost_var.get())
         self.capture_background_input(background, self)
         self.background_window = background
-        self.update_idletasks()
         self.sync_background_window()
-        for delay in (25, 100, 250):
-            self.after(delay, self.sync_background_window)
+        background.lower(self)
         self.apply_window_opacity()
         self.after(100, self.enable_taskbar_icon)
 
@@ -939,11 +931,6 @@ class MonitorApp(tk.Tk):
         if self.background_window is None or not self.background_window.winfo_exists():
             return
         self.background_window.geometry(f"{self.winfo_width()}x{self.winfo_height()}+{self.winfo_x()}+{self.winfo_y()}")
-        # Keep the opaque background directly behind the colour-keyed content.
-        # Without the explicit restack, Windows can raise the background above
-        # the frameless root and swallow every button/drag event.
-        self.background_window.lower()
-        self.lift()
 
     def schedule_settings_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._settings_background_sync_scheduled:
@@ -961,8 +948,8 @@ class MonitorApp(tk.Tk):
         background.wm_attributes("-topmost", self.topmost_var.get())
         self.capture_background_input(background, self.settings_window)
         self.settings_background_window = background
-        self.settings_window.update_idletasks()
         self.sync_settings_background()
+        background.lower(self.settings_window)
         self.apply_window_opacity()
 
     def sync_settings_background(self) -> None:
@@ -975,8 +962,6 @@ class MonitorApp(tk.Tk):
             f"{self.settings_window.winfo_width()}x{self.settings_window.winfo_height()}"
             f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
         )
-        self.settings_background_window.lower()
-        self.settings_window.lift()
 
     def capture_background_input(self, background: tk.Toplevel, target: tk.Toplevel) -> None:
         """Consume colour-key clicks instead of letting them reach the desktop."""
@@ -988,27 +973,13 @@ class MonitorApp(tk.Tk):
             target.lift()
             target.focus_force()
             target._drag_offset = (event.x_root - target.winfo_x(), event.y_root - target.winfo_y())
-            if target is self and event.x >= target.winfo_width() - 24 and event.y >= target.winfo_height() - 24:
-                self.begin_window_resize(event)
 
         def drag(event: tk.Event[Any]) -> None:
-            if target is self and self._resize_start is not None:
-                self.resize_window(event)
-                return
             offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
             target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
-            if target is self:
-                self.sync_background_window()
-            elif target is self.settings_window:
-                self.sync_settings_background()
-
-        def release(event: tk.Event[Any]) -> None:
-            if target is self and self._resize_start is not None:
-                self.finish_window_resize(event)
 
         background.bind("<ButtonPress-1>", activate)
         background.bind("<B1-Motion>", drag)
-        background.bind("<ButtonRelease-1>", release)
 
     def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         text = " ".join(response.split())
@@ -1052,7 +1023,6 @@ class MonitorApp(tk.Tk):
         x = event.x_root - self._drag_offset[0]
         y = event.y_root - self._drag_offset[1]
         self.geometry(f"+{x}+{y}")
-        self.sync_background_window()
 
     def begin_window_resize(self, event: tk.Event[Any]) -> None:
         self._resize_start = (event.x_root, event.y_root, self.winfo_width(), self.winfo_height())
@@ -1064,7 +1034,6 @@ class MonitorApp(tk.Tk):
         width = max(MIN_WINDOW_WIDTH, start_width + event.x_root - start_x)
         height = max(MIN_WINDOW_HEIGHT, start_height + event.y_root - start_y)
         self.geometry(f"{width}x{height}")
-        self.sync_background_window()
 
     def finish_window_resize(self, _event: tk.Event[Any]) -> None:
         self._resize_start = None
