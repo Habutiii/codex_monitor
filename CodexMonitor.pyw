@@ -552,6 +552,10 @@ class MonitorApp(tk.Tk):
         self.apply_theme()
         self.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.bind("<Configure>", self.schedule_background_sync, add="+")
+        # Frame bindings do not receive motion events from empty geometry owned
+        # by a parent.  Observe all app motion and resolve it against the row
+        # rectangles, so the complete session row is the hover target.
+        self.bind_all("<Motion>", self.handle_session_hover_motion, add="+")
         self.after_idle(self.create_background_window)
         self.start_instance_server()
         self.write_instance_pid()
@@ -1042,6 +1046,20 @@ class MonitorApp(tk.Tk):
         self.hover_popup.deiconify()
         self.hover_popup.lift()
 
+    def handle_session_hover_motion(self, event: tk.Event[Any]) -> None:
+        """Show the response for any pointer position within a session row."""
+        if self.hover_popup is not None and event.widget.winfo_toplevel() is self.hover_popup:
+            return
+        for widgets in self.row_widgets.values():
+            item = widgets["item"]
+            if not item.winfo_ismapped():
+                continue
+            left, top = item.winfo_rootx(), item.winfo_rooty()
+            if left <= event.x_root < left + item.winfo_width() and top <= event.y_root < top + item.winfo_height():
+                self.show_response_popup(event, widgets["response"], item)
+                return
+        self.hide_response_popup()
+
     def move_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         if response and self.hover_popup is not None and self.hover_popup.winfo_exists():
             self.hover_item = item
@@ -1054,6 +1072,8 @@ class MonitorApp(tk.Tk):
         target = self.winfo_containing(self.winfo_pointerx(), self.winfo_pointery())
         while target is not None:
             if target is self.hover_item:
+                return
+            if self.hover_popup is not None and target.winfo_toplevel() is self.hover_popup:
                 return
             target = target.master
         if self.hover_popup is not None and self.hover_popup.winfo_exists():
