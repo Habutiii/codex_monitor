@@ -711,6 +711,8 @@ class MonitorApp(tk.Tk):
         def drag(event: tk.Event[Any]) -> None:
             offset_x, offset_y = getattr(popup, "_drag_offset", (0, 0))
             popup.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+            if popup is self.settings_window:
+                self.sync_settings_background()
 
         for widget in (header, title_area, icon, label):
             widget.bind("<ButtonPress-1>", begin_drag)
@@ -786,7 +788,11 @@ class MonitorApp(tk.Tk):
                 popup.wm_attributes("-topmost", self.topmost_var.get())
             except tk.TclError:
                 pass
+        popup.update_idletasks()
         self.create_settings_background_window()
+        # Native placement can settle after the first idle pass on Windows.
+        for delay in (25, 100, 250):
+            self.after(delay, self.sync_settings_background)
         popup.grab_set()
 
     def close_settings(self) -> None:
@@ -915,8 +921,10 @@ class MonitorApp(tk.Tk):
         background.wm_attributes("-topmost", self.topmost_var.get())
         self.capture_background_input(background, self)
         self.background_window = background
+        self.update_idletasks()
         self.sync_background_window()
-        background.lower(self)
+        for delay in (25, 100, 250):
+            self.after(delay, self.sync_background_window)
         self.apply_window_opacity()
         self.after(100, self.enable_taskbar_icon)
 
@@ -953,8 +961,8 @@ class MonitorApp(tk.Tk):
         background.wm_attributes("-topmost", self.topmost_var.get())
         self.capture_background_input(background, self.settings_window)
         self.settings_background_window = background
+        self.settings_window.update_idletasks()
         self.sync_settings_background()
-        background.lower(self.settings_window)
         self.apply_window_opacity()
 
     def sync_settings_background(self) -> None:
@@ -989,6 +997,10 @@ class MonitorApp(tk.Tk):
                 return
             offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
             target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
+            if target is self:
+                self.sync_background_window()
+            elif target is self.settings_window:
+                self.sync_settings_background()
 
         def release(event: tk.Event[Any]) -> None:
             if target is self and self._resize_start is not None:
@@ -1040,6 +1052,7 @@ class MonitorApp(tk.Tk):
         x = event.x_root - self._drag_offset[0]
         y = event.y_root - self._drag_offset[1]
         self.geometry(f"+{x}+{y}")
+        self.sync_background_window()
 
     def begin_window_resize(self, event: tk.Event[Any]) -> None:
         self._resize_start = (event.x_root, event.y_root, self.winfo_width(), self.winfo_height())
@@ -1051,6 +1064,7 @@ class MonitorApp(tk.Tk):
         width = max(MIN_WINDOW_WIDTH, start_width + event.x_root - start_x)
         height = max(MIN_WINDOW_HEIGHT, start_height + event.y_root - start_y)
         self.geometry(f"{width}x{height}")
+        self.sync_background_window()
 
     def finish_window_resize(self, _event: tk.Event[Any]) -> None:
         self._resize_start = None
