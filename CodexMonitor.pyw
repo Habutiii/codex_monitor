@@ -473,7 +473,7 @@ class MonitorApp(tk.Tk):
         self.overrideredirect(True)
         self.after_idle(self.maintain_taskbar_icon)
         self.bind("<Map>", lambda _event: self.enable_taskbar_icon(), add="+")
-        self.bind("<FocusIn>", lambda _event: self.enable_taskbar_icon(), add="+")
+        self.bind("<FocusIn>", self.on_main_focus, add="+")
         self._drag_offset = (0, 0)
         self._resize_start: tuple[int, int, int, int] | None = None
         self.configure(padx=0, pady=0)
@@ -696,6 +696,24 @@ class MonitorApp(tk.Tk):
         self.enable_taskbar_icon()
         self.after(1_000, self.maintain_taskbar_icon)
 
+    def on_main_focus(self, _event: tk.Event[Any]) -> None:
+        self.enable_taskbar_icon()
+        self.after_idle(self.restack_background_layers)
+
+    def restack_background_layers(self) -> None:
+        """Keep each background immediately below its matching content window."""
+        if self.background_window is not None and self.background_window.winfo_exists():
+            self.background_window.lift()
+            self.background_window.lower(self)
+        if (
+            self.settings_window is not None
+            and self.settings_window.winfo_exists()
+            and self.settings_background_window is not None
+            and self.settings_background_window.winfo_exists()
+        ):
+            self.settings_background_window.lift()
+            self.settings_background_window.lower(self.settings_window)
+
     def set_topmost(self) -> None:
         self.set_window_attribute("-topmost", self.topmost_var.get())
         if self.background_window is not None and self.background_window.winfo_exists():
@@ -804,6 +822,7 @@ class MonitorApp(tk.Tk):
         self.create_settings_background_window()
         popup.deiconify()
         popup.lift()
+        self.after_idle(self.restack_background_layers)
         popup.grab_set()
 
     def close_settings(self) -> None:
