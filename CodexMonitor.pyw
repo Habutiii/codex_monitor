@@ -639,8 +639,141 @@ class MonitorApp(tk.Tk):
 
     def apply_geometry(self) -> None:
         geometry = self.settings.get("geometry")
-        if isinstance(geometry, str) and geometry:
+        if not isinstance(geometry, str) or not geometry:
+            return
+        parsed = self.parse_geometry(geometry)
+        if parsed is None:
+            return
+        displays = self.available_displays()
+        saved_display = str(self.settings.get("display_id", ""))
+        # A known display is deliberately restored exactly as it was saved.
+        # When that display has gone away (for example, an unplugged monitor),
+        # bring the panel back onto the primary display instead of opening it
+        # off-screen.
+        if saved_display and any(display["id"] == saved_display for display in displays):
             self.geometry(geometry)
+        elif not saved_display and self.geometry_is_visible(parsed, displays):
+            # Preserve locations saved by older versions, which had no display
+            # identifier, whenever they still land on an available screen.
+            self.geometry(geometry)
+        else:
+            self.geometry(self.geometry_on_primary_display(parsed, displays))
+
+    @staticmethod
+    def parse_geometry(geometry: str) -> tuple[int, int, int, int] | None:
+        match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", geometry)
+        if match is None:
+            return None
+        return tuple(map(int, match.groups()))  # type: ignore[return-value]
+
+    def available_displays(self) -> list[dict[str, int | str | bool]]:
+        """Return stable display ids and Tk-coordinate bounds when available."""
+        if sys.platform == "win32":
+            displays = self.windows_displays()
+            if displays:
+                return displays
+        elif sys.platform == "darwin":
+            displays = self.macos_displays()
+            if displays:
+                return displays
+        return [{
+            "id": str(self.winfo_screen()),
+            "x": self.winfo_vrootx(), "y": self.winfo_vrooty(),
+            "width": self.winfo_vrootwidth(), "height": self.winfo_vrootheight(),
+            "primary": True,
+        }]
+
+    def windows_displays(self) -> list[dict[str, int | str | bool]]:
+        """Enumerate Windows monitors without a third-party dependency."""
+        try:
+            from ctypes import wintypes
+
+            class MonitorInfo(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                    ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD),
+                    ("szDevice", ctypes.c_wchar * 32),
+                ]
+
+            displays: list[dict[str, int | str | bool]] = []
+            user32 = ctypes.windll.user32
+            callback_type = ctypes.WINFUNCTYPE(
+                ctypes.c_int, wintypes.HMONITOR, wintypes.HDC,
+                ctypes.POINTER(wintypes.RECT), wintypes.LPARAM,
+            )
+
+            def collect(handle: Any, _dc: Any, _rect: Any, _data: Any) -> int:
+                info = MonitorInfo()
+                info.cbSize = ctypes.sizeof(info)
+                if user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+                    rect = info.rcMonitor
+                    displays.append({
+                        "id": str(info.szDevice), "x": rect.left, "y": rect.top,
+                        "width": rect.right - rect.left, "height": rect.bottom - rect.top,
+                        "primary": bool(info.dwFlags & 1),
+                    })
+                return 1
+
+            user32.EnumDisplayMonitors(None, None, callback_type(collect), 0)
+            return displays
+        except (AttributeError, OSError):
+            return []
+
+    def macos_displays(self) -> list[dict[str, int | str | bool]]:
+        """Use AppKit when present; otherwise the virtual-root fallback is used."""
+        try:
+            from AppKit import NSScreen  # type: ignore[import-not-found]
+
+            screens = list(NSScreen.screens())
+            if not screens:
+                return []
+            maximum_y = max(float(screen.frame().origin.y + screen.frame().size.height) for screen in screens)
+            main = NSScreen.mainScreen()
+            displays: list[dict[str, int | str | bool]] = []
+            for index, screen in enumerate(screens):
+                frame = screen.frame()
+                number = screen.deviceDescription().get("NSScreenNumber", index)
+                displays.append({
+                    "id": f"mac:{number}", "x": round(frame.origin.x),
+                    "y": round(maximum_y - (frame.origin.y + frame.size.height)),
+                    "width": round(frame.size.width), "height": round(frame.size.height),
+                    "primary": screen == main,
+                })
+            return displays
+        except (ImportError, AttributeError):
+            return []
+
+    @staticmethod
+    def geometry_is_visible(geometry: tuple[int, int, int, int], displays: list[dict[str, int | str | bool]]) -> bool:
+        _width, _height, x, y = geometry
+        return any(
+            int(display["x"]) <= x < int(display["x"]) + int(display["width"])
+            and int(display["y"]) <= y < int(display["y"]) + int(display["height"])
+            for display in displays
+        )
+
+    @staticmethod
+    def geometry_on_primary_display(geometry: tuple[int, int, int, int], displays: list[dict[str, int | str | bool]]) -> str:
+        width, height, _x, _y = geometry
+        primary = next((display for display in displays if display["primary"]), displays[0])
+        screen_width, screen_height = int(primary["width"]), int(primary["height"])
+        width, height = min(width, screen_width), min(height, screen_height)
+        x = int(primary["x"]) + max(0, (screen_width - width) // 2)
+        y = int(primary["y"]) + max(0, (screen_height - height) // 2)
+        return f"{width}x{height}{x:+d}{y:+d}"
+
+    def current_display_id(self) -> str:
+        geometry = self.parse_geometry(self.geometry())
+        if geometry is None:
+            return ""
+        _width, _height, x, y = geometry
+        for display in self.available_displays():
+            if (
+                int(display["x"]) <= x < int(display["x"]) + int(display["width"])
+                and int(display["y"]) <= y < int(display["y"]) + int(display["height"])
+            ):
+                return str(display["id"])
+        return ""
 
     def save_settings(self) -> None:
         path = settings_path()
@@ -657,6 +790,7 @@ class MonitorApp(tk.Tk):
             "hover_font": self.hover_font_var.get(),
             "hover_font_size": self.hover_font_size_var.get(),
             "geometry": self.geometry(),
+            "display_id": self.current_display_id(),
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
