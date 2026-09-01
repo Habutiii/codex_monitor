@@ -931,6 +931,11 @@ class MonitorApp(tk.Tk):
         if self.background_window is None or not self.background_window.winfo_exists():
             return
         self.background_window.geometry(f"{self.winfo_width()}x{self.winfo_height()}+{self.winfo_x()}+{self.winfo_y()}")
+        # Keep the opaque background directly behind the colour-keyed content.
+        # Without the explicit restack, Windows can raise the background above
+        # the frameless root and swallow every button/drag event.
+        self.background_window.lower()
+        self.lift()
 
     def schedule_settings_background_sync(self, _event: tk.Event[Any] | None = None) -> None:
         if self._settings_background_sync_scheduled:
@@ -962,6 +967,8 @@ class MonitorApp(tk.Tk):
             f"{self.settings_window.winfo_width()}x{self.settings_window.winfo_height()}"
             f"+{self.settings_window.winfo_x()}+{self.settings_window.winfo_y()}"
         )
+        self.settings_background_window.lower()
+        self.settings_window.lift()
 
     def capture_background_input(self, background: tk.Toplevel, target: tk.Toplevel) -> None:
         """Consume colour-key clicks instead of letting them reach the desktop."""
@@ -973,13 +980,23 @@ class MonitorApp(tk.Tk):
             target.lift()
             target.focus_force()
             target._drag_offset = (event.x_root - target.winfo_x(), event.y_root - target.winfo_y())
+            if target is self and event.x >= target.winfo_width() - 24 and event.y >= target.winfo_height() - 24:
+                self.begin_window_resize(event)
 
         def drag(event: tk.Event[Any]) -> None:
+            if target is self and self._resize_start is not None:
+                self.resize_window(event)
+                return
             offset_x, offset_y = getattr(target, "_drag_offset", (0, 0))
             target.geometry(f"+{event.x_root - offset_x}+{event.y_root - offset_y}")
 
+        def release(event: tk.Event[Any]) -> None:
+            if target is self and self._resize_start is not None:
+                self.finish_window_resize(event)
+
         background.bind("<ButtonPress-1>", activate)
         background.bind("<B1-Motion>", drag)
+        background.bind("<ButtonRelease-1>", release)
 
     def show_response_popup(self, event: tk.Event[Any], response: str, item: ttk.Frame) -> None:
         text = " ".join(response.split())
