@@ -670,10 +670,14 @@ class MonitorApp(tk.Tk):
             return False
 
     def enable_taskbar_icon(self) -> None:
-        """Keep the frameless main window visible in the Windows taskbar."""
+        """Keep the frameless main window and its own icon in the taskbar."""
         if sys.platform != "win32":
             return
         try:
+            # Tk can replace the native icon while changing window decorations.
+            # Reapply it together with WS_EX_APPWINDOW, so this remains the
+            # visible taskbar button for the lifetime of the application.
+            self.iconphoto(True, self.app_icon)
             self.wm_attributes("-toolwindow", False)
             user32 = ctypes.windll.user32
             get_style = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
@@ -1082,6 +1086,11 @@ class MonitorApp(tk.Tk):
     def restore_custom_chrome(self) -> None:
         if self.state() == "normal":
             self.overrideredirect(True)
+            # Restoring a frameless window makes Tk rewrite the extended style.
+            # Reapply this on the next idle pass and just after the native style
+            # update so the taskbar button never falls back to Python's icon.
+            self.after_idle(self.enable_taskbar_icon)
+            self.after(50, self.enable_taskbar_icon)
             if self.background_window is not None and self.background_window.winfo_exists():
                 self.background_window.deiconify()
                 self.sync_background_window()
