@@ -471,6 +471,9 @@ class MonitorApp(tk.Tk):
         # grip below supplies resizing while retaining the frameless design.
         self.resizable(True, True)
         self.overrideredirect(True)
+        # Establish WS_EX_APPWINDOW before Tk maps the first visible frame, so
+        # the taskbar button and its app icon exist from the first paint.
+        self.enable_taskbar_icon()
         self.after_idle(self.maintain_taskbar_icon)
         self.bind("<Map>", lambda _event: self.enable_taskbar_icon(), add="+")
         self.bind("<FocusIn>", self.on_main_focus, add="+")
