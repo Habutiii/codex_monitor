@@ -1160,7 +1160,7 @@ class MonitorApp(tk.Tk):
         if not text:
             return
         self.hover_item = item
-        text = text[:400].rstrip() + ("..." if len(text) > 400 else "")
+        text = text[:1000].rstrip() + ("..." if len(text) > 1000 else "")
         if self.hover_popup is None or not self.hover_popup.winfo_exists():
             self.hover_popup = tk.Toplevel(self)
             self.hover_popup.overrideredirect(True)
@@ -1172,7 +1172,7 @@ class MonitorApp(tk.Tk):
                 self.hover_popup.wm_attributes("-toolwindow", True)
             except tk.TclError:
                 pass
-            self.hover_label = tk.Label(self.hover_popup, bg="#000000", fg="#f3f6fb", justify="left", anchor="w", wraplength=360, padx=10, pady=8, font=(self.hover_font_var.get(), self.hover_font_size_var.get()))
+            self.hover_label = tk.Label(self.hover_popup, bg="#000000", fg="#f3f6fb", justify="left", anchor="w", wraplength=560, padx=10, pady=8, font=(self.hover_font_var.get(), self.hover_font_size_var.get()))
             self.hover_label.pack()
         self.hover_label.configure(text=text)
         self.hover_popup.wm_attributes("-alpha", self.alpha_var.get() / 100)
