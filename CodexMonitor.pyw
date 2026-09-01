@@ -426,7 +426,10 @@ class SessionReader:
             ):
                 unique[key] = tracker
         rows = [(item.name, item.project_name, item.display_status(now), item.ending, item.ending, item.last_event_at) for item in unique.values()]
-        rows = sorted(rows, key=lambda row: (-priority[row[2]], -row[5], row[0].lower()))
+        # Display the most recently active session first, irrespective of its
+        # current status.  Status priority is only used above to choose the
+        # representative when duplicate session files are found.
+        rows = sorted(rows, key=lambda row: (-row[5], row[0].lower()))
         snapshot = tuple(
             sorted(
                 (
@@ -464,11 +467,12 @@ class MonitorApp(tk.Tk):
         # grip below supplies resizing while retaining the frameless design.
         self.resizable(True, True)
         self.overrideredirect(True)
+        self._taskbar_presence_refreshed = False
         # Establish WS_EX_APPWINDOW before Tk maps the first visible frame, so
         # the taskbar button and its app icon exist from the first paint.
         self.enable_taskbar_icon()
         self.after_idle(self.maintain_taskbar_icon)
-        self.bind("<Map>", lambda _event: self.enable_taskbar_icon(), add="+")
+        self.bind("<Map>", self.on_main_map, add="+")
         self.bind("<FocusIn>", self.on_main_focus, add="+")
         self._drag_offset = (0, 0)
         self._resize_start: tuple[int, int, int, int] | None = None
@@ -817,15 +821,51 @@ class MonitorApp(tk.Tk):
             # visible taskbar button for the lifetime of the application.
             self.iconphoto(True, self.app_icon)
             self.wm_attributes("-toolwindow", False)
+            from ctypes import wintypes
+
             user32 = ctypes.windll.user32
+            pointer_sized = hasattr(user32, "GetWindowLongPtrW")
             get_style = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
             set_style = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
-            ex_style = get_style(self.winfo_id(), -20)  # GWL_EXSTYLE
+            # ctypes otherwise treats handles as 32-bit integers, which makes
+            # these calls fail silently on 64-bit Windows.
+            get_style.argtypes = (wintypes.HWND, ctypes.c_int)
+            get_style.restype = ctypes.c_ssize_t if pointer_sized else ctypes.c_long
+            set_style.argtypes = (wintypes.HWND, ctypes.c_int, get_style.restype)
+            set_style.restype = get_style.restype
+            user32.GetParent.argtypes = (wintypes.HWND,)
+            user32.GetParent.restype = wintypes.HWND
+            user32.SetWindowPos.argtypes = (
+                wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                ctypes.c_int, ctypes.c_int, wintypes.UINT,
+            )
+            user32.SetWindowPos.restype = wintypes.BOOL
+            # winfo_id() is Tk's client HWND.  The taskbar observes its outer
+            # parent window, so apply the extended style to that HWND instead.
+            client_hwnd = self.winfo_id()
+            taskbar_hwnd = user32.GetParent(client_hwnd) or client_hwnd
+            ex_style = get_style(taskbar_hwnd, -20)  # GWL_EXSTYLE
             # WS_EX_APPWINDOW / WS_EX_TOOLWINDOW
-            set_style(self.winfo_id(), -20, (ex_style | 0x00040000) & ~0x00000080)
-            user32.SetWindowPos(self.winfo_id(), 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+            set_style(taskbar_hwnd, -20, (ex_style | 0x00040000) & ~0x00000080)
+            user32.SetWindowPos(taskbar_hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
         except (AttributeError, OSError, tk.TclError):
             pass
+
+    def on_main_map(self, _event: tk.Event[Any]) -> None:
+        """Register the frameless window with the Windows taskbar once."""
+        self.enable_taskbar_icon()
+        if sys.platform == "win32" and not self._taskbar_presence_refreshed:
+            self._taskbar_presence_refreshed = True
+            # Explorer determines taskbar membership when the outer HWND is
+            # shown.  Remapping once after its style is set makes the custom
+            # icon/button reliable for an overrideredirect Tk window.
+            self.after_idle(self.refresh_taskbar_presence)
+
+    def refresh_taskbar_presence(self) -> None:
+        if self._closing:
+            return
+        self.withdraw()
+        self.after_idle(self.deiconify)
 
     def maintain_taskbar_icon(self) -> None:
         """Reapply the taskbar style after native windows change focus or z-order."""
