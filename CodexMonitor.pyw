@@ -471,7 +471,8 @@ class MonitorApp(tk.Tk):
         # grip below supplies resizing while retaining the frameless design.
         self.resizable(True, True)
         self.overrideredirect(True)
-        self.after_idle(self.enable_taskbar_icon)
+        self.after_idle(self.maintain_taskbar_icon)
+        self.bind("<Map>", lambda _event: self.enable_taskbar_icon(), add="+")
         self.bind("<FocusIn>", lambda _event: self.enable_taskbar_icon(), add="+")
         self._drag_offset = (0, 0)
         self._resize_start: tuple[int, int, int, int] | None = None
@@ -675,6 +676,7 @@ class MonitorApp(tk.Tk):
         if sys.platform != "win32":
             return
         try:
+            self.wm_attributes("-toolwindow", False)
             user32 = ctypes.windll.user32
             get_style = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
             set_style = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
@@ -682,8 +684,15 @@ class MonitorApp(tk.Tk):
             # WS_EX_APPWINDOW / WS_EX_TOOLWINDOW
             set_style(self.winfo_id(), -20, (ex_style | 0x00040000) & ~0x00000080)
             user32.SetWindowPos(self.winfo_id(), 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
-        except (AttributeError, OSError):
+        except (AttributeError, OSError, tk.TclError):
             pass
+
+    def maintain_taskbar_icon(self) -> None:
+        """Reapply the taskbar style after native windows change focus or z-order."""
+        if self._closing:
+            return
+        self.enable_taskbar_icon()
+        self.after(1_000, self.maintain_taskbar_icon)
 
     def set_topmost(self) -> None:
         self.set_window_attribute("-topmost", self.topmost_var.get())
@@ -786,7 +795,13 @@ class MonitorApp(tk.Tk):
                 popup.wm_attributes("-topmost", self.topmost_var.get())
             except tk.TclError:
                 pass
+        # Calculate the real popup size before creating its paired background.
+        # This prevents the first paint from pairing the background with the
+        # default 1x1 geometry, which makes the Settings content look invisible.
+        popup.update_idletasks()
         self.create_settings_background_window()
+        popup.deiconify()
+        popup.lift()
         popup.grab_set()
 
     def close_settings(self) -> None:
